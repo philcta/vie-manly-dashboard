@@ -1,0 +1,26 @@
+# === Core ===
+streamlit==1.50.0
+pandas
+numpy
+
+# === Charts ===
+altair
+plotly
+
+# === Analytics ===
+scikit-learn
+statsmodels
+
+# === Database (Supabase REST API via urllib — no extra packages needed) ===
+# supabase connectivity is handled by db_supabase.py using built-in urllib
+
+# === Square API ===
+squareup>=40.0.0
+
+# === File handling ===
+openpyxl
+xlrd
+
+# === Utilities ===
+psutil==5.9.8
+python-dotenv

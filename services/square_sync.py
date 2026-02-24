@@ -1,0 +1,592 @@
+"""
+services/square_sync.py — Square API → Supabase sync service
+
+Pulls data from Square POS API and writes to Supabase:
+- Transactions (via Orders API)
+- Inventory (via Catalog + Inventory API)
+- Customers/Members (via Customers API)
+
+Can be run as:
+- Standalone script: python -m services.square_sync
+- GitHub Actions cron job
+- Called from the dashboard UI
+"""
+
+import os
+import sys
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+import pandas as pd
+import streamlit as st
+
+try:
+    from square.client import Client as SquareClient
+except ImportError:
+    print("⚠️ squareup package not installed. Run: pip install squareup")
+    SquareClient = None
+
+
+# ============================================
+# Square Client Setup
+# ============================================
+
+def _get_square_config():
+    """Get Square config from Streamlit secrets or environment variables."""
+    # Try Streamlit secrets first
+    try:
+        return {
+            "access_token": st.secrets["square"]["access_token"],
+            "environment": st.secrets["square"].get("environment", "production"),
+            "location_id": st.secrets["square"]["location_id"],
+        }
+    except Exception:
+        pass
+
+    # Fall back to environment variables
+    token = os.getenv("SQUARE_ACCESS_TOKEN")
+    if not token:
+        raise ValueError("Square access token not found. Set SQUARE_ACCESS_TOKEN in .env")
+
+    return {
+        "access_token": token,
+        "environment": os.getenv("SQUARE_ENVIRONMENT", "production"),
+        "location_id": os.getenv("SQUARE_LOCATION_ID"),
+    }
+
+
+def get_square_client() -> "SquareClient":
+    """Create a Square API client."""
+    if SquareClient is None:
+        raise ImportError("squareup package not installed. Run: pip install squareup")
+
+    config = _get_square_config()
+    return SquareClient(
+        access_token=config["access_token"],
+        environment=config["environment"],
+    )
+
+
+def get_location_id() -> str:
+    """Get the Square location ID."""
+    config = _get_square_config()
+    loc_id = config.get("location_id")
+    if loc_id:
+        return loc_id
+
+    # Auto-discover: get the first active location
+    client = get_square_client()
+    result = client.locations.list_locations()
+    if result.is_success():
+        locations = result.body.get("locations", [])
+        active = [l for l in locations if l.get("status") == "ACTIVE"]
+        if active:
+            return active[0]["id"]
+    raise ValueError("No Square location found. Set SQUARE_LOCATION_ID in .env")
+
+
+# ============================================
+# Sync Transactions (Orders API)
+# ============================================
+
+def sync_transactions(hours_back: int = 2) -> pd.DataFrame:
+    """
+    Fetch recent transactions from Square Orders API.
+
+    Args:
+        hours_back: How many hours of data to fetch (default: 2 for hourly cron with overlap)
+
+    Returns:
+        DataFrame with transaction rows in the dashboard's expected format
+    """
+    client = get_square_client()
+    location_id = get_location_id()
+
+    now = datetime.now(timezone.utc)
+    start_time = now - timedelta(hours=hours_back)
+
+    all_orders = []
+    cursor = None
+
+    while True:
+        body = {
+            "location_ids": [location_id],
+            "query": {
+                "filter": {
+                    "date_time_filter": {
+                        "created_at": {
+                            "start_at": start_time.isoformat(),
+                            "end_at": now.isoformat(),
+                        }
+                    },
+                    "state_filter": {
+                        "states": ["COMPLETED"]
+                    }
+                },
+                "sort": {
+                    "sort_field": "CREATED_AT",
+                    "sort_order": "ASC"
+                }
+            },
+            "limit": 500,
+        }
+
+        if cursor:
+            body["cursor"] = cursor
+
+        result = client.orders.search_orders(body=body)
+
+        if result.is_error():
+            errors = result.errors
+            print(f"❌ Square Orders API error: {errors}")
+            break
+
+        orders = result.body.get("orders", [])
+        all_orders.extend(orders)
+
+        cursor = result.body.get("cursor")
+        if not cursor:
+            break
+
+    # Convert orders to transaction rows (matching your CSV format)
+    rows = []
+    for order in all_orders:
+        order_id = order.get("id", "")
+        created_at = order.get("created_at", "")
+        customer_id = order.get("customer_id", "")
+
+        # Parse tenders (payment info)
+        tenders = order.get("tenders", [])
+        card_brand = ""
+        pan_suffix = ""
+        if tenders:
+            card_details = tenders[0].get("card_details", {})
+            card = card_details.get("card", {})
+            card_brand = card.get("card_brand", "")
+            pan_suffix = card.get("last_4", "")
+
+        # Parse line items
+        line_items = order.get("line_items", [])
+        for item in line_items:
+            item_name = item.get("name", "")
+            qty = float(item.get("quantity", "0"))
+            category = item.get("catalog_object_id", "")  # We'll map this later
+
+            # Amounts are in cents (smallest currency unit)
+            base_price = int(item.get("base_price_money", {}).get("amount", 0)) / 100
+            total_money = int(item.get("total_money", {}).get("amount", 0)) / 100
+            total_tax = int(item.get("total_tax_money", {}).get("amount", 0)) / 100
+            total_discount = int(item.get("total_discount_money", {}).get("amount", 0)) / 100
+
+            gross_sales = base_price * qty
+            net_sales = total_money - total_tax
+
+            # Parse modifiers
+            modifiers = item.get("modifiers", [])
+            modifier_names = [m.get("name", "") for m in modifiers]
+            modifiers_str = ", ".join(modifier_names) if modifier_names else ""
+
+            # Get variation name for better item identification
+            variation_name = item.get("variation_name", "")
+            if variation_name and variation_name != item_name:
+                display_name = f"{item_name} - {variation_name}"
+            else:
+                display_name = item_name
+
+            # Parse datetime
+            try:
+                dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                # Convert to Sydney time
+                from zoneinfo import ZoneInfo
+                dt_local = dt.astimezone(ZoneInfo("Australia/Sydney"))
+                date_str = dt_local.strftime("%Y-%m-%d")
+                time_str = dt_local.strftime("%H:%M:%S")
+                datetime_str = dt_local.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                date_str = ""
+                time_str = ""
+                datetime_str = created_at
+
+            rows.append({
+                "Datetime": datetime_str,
+                "Category": "",       # Will be enriched from catalog
+                "Item": display_name,
+                "Qty": qty,
+                "Net Sales": round(net_sales, 2),
+                "Gross Sales": round(gross_sales, 2),
+                "Discounts": round(total_discount, 2),
+                "Customer ID": customer_id,
+                "Transaction ID": order_id,
+                "Tax": str(round(total_tax, 2)),
+                "Card Brand": card_brand,
+                "PAN Suffix": pan_suffix,
+                "Date": date_str,
+                "Time": time_str,
+                "Time Zone": "Australia/Sydney",
+                "Modifiers Applied": modifiers_str,
+            })
+
+    df = pd.DataFrame(rows)
+    print(f"✅ Fetched {len(df)} transaction line items from Square ({hours_back}h window)")
+    return df
+
+
+# ============================================
+# Sync Inventory (Catalog + Inventory Count API)
+# ============================================
+
+def sync_inventory() -> pd.DataFrame:
+    """
+    Fetch current inventory from Square Catalog API + Inventory Counts API.
+
+    Returns:
+        DataFrame with inventory rows matching the dashboard's expected format
+    """
+    client = get_square_client()
+    location_id = get_location_id()
+
+    # --- Step 1: Get all catalog items ---
+    all_items = []
+    cursor = None
+
+    while True:
+        result = client.catalog.list_catalog(
+            cursor=cursor,
+            types="ITEM"
+        )
+
+        if result.is_error():
+            print(f"❌ Square Catalog API error: {result.errors}")
+            break
+
+        objects = result.body.get("objects", [])
+        all_items.extend(objects)
+
+        cursor = result.body.get("cursor")
+        if not cursor:
+            break
+
+    # --- Step 2: Build item → variation mapping ---
+    variation_ids = []
+    catalog_map = {}  # variation_id → {product_name, sku, category, price, ...}
+
+    for item in all_items:
+        item_data = item.get("item_data", {})
+        product_name = item_data.get("name", "")
+        category_id = item_data.get("category_id", "")
+        tax_ids = item_data.get("tax_ids", [])
+        has_gst = len(tax_ids) > 0  # Simplified GST detection
+
+        for variation in item_data.get("variations", []):
+            var_id = variation.get("id", "")
+            var_data = variation.get("item_variation_data", {})
+
+            sku = var_data.get("sku", "")
+            price_money = var_data.get("price_money", {})
+            price = int(price_money.get("amount", 0)) / 100 if price_money else 0
+
+            # Unit cost (if available)
+            unit_cost_money = var_data.get("item_variation_vendor_infos", [])
+            unit_cost = 0
+            if unit_cost_money:
+                cost_data = unit_cost_money[0].get("item_variation_vendor_info_data", {})
+                cost_money = cost_data.get("price_money", {})
+                unit_cost = int(cost_money.get("amount", 0)) / 100
+
+            catalog_map[var_id] = {
+                "product_id": item.get("id", ""),
+                "product_name": product_name,
+                "sku": sku,
+                "categories": "",  # Will resolve category names below
+                "price": price,
+                "tax_gst": "Y" if has_gst else "N",
+                "default_unit_cost": unit_cost,
+                "unit": var_data.get("measurement_unit_id", ""),
+            }
+            variation_ids.append(var_id)
+
+    # --- Step 3: Resolve category names ---
+    category_ids = set()
+    for item in all_items:
+        cat_id = item.get("item_data", {}).get("category_id")
+        if cat_id:
+            category_ids.add(cat_id)
+
+    category_names = {}
+    if category_ids:
+        cat_result = client.catalog.batch_retrieve_catalog_objects(
+            body={"object_ids": list(category_ids)}
+        )
+        if cat_result.is_success():
+            for obj in cat_result.body.get("objects", []):
+                cat_data = obj.get("category_data", {})
+                category_names[obj["id"]] = cat_data.get("name", "")
+
+    # Map category names back to items
+    for item in all_items:
+        cat_id = item.get("item_data", {}).get("category_id")
+        cat_name = category_names.get(cat_id, "")
+        for variation in item.get("item_data", {}).get("variations", []):
+            var_id = variation.get("id", "")
+            if var_id in catalog_map:
+                catalog_map[var_id]["categories"] = cat_name
+
+    # --- Step 4: Get inventory counts ---
+    counts_map = {}  # variation_id → quantity
+
+    if variation_ids:
+        # Batch in groups of 100
+        for i in range(0, len(variation_ids), 100):
+            batch_ids = variation_ids[i:i + 100]
+            result = client.inventory.batch_retrieve_inventory_counts(
+                body={
+                    "catalog_object_ids": batch_ids,
+                    "location_ids": [location_id],
+                }
+            )
+            if result.is_success():
+                for count in result.body.get("counts", []):
+                    obj_id = count.get("catalog_object_id", "")
+                    qty = float(count.get("quantity", "0"))
+                    state = count.get("state", "")
+                    if state == "IN_STOCK":
+                        counts_map[obj_id] = counts_map.get(obj_id, 0) + qty
+
+    # --- Step 5: Build inventory DataFrame ---
+    today = datetime.now().strftime("%Y-%m-%d")
+    rows = []
+
+    for var_id, info in catalog_map.items():
+        qty = counts_map.get(var_id, 0)
+        rows.append({
+            "Product ID": info["product_id"],
+            "Product Name": info["product_name"],
+            "SKU": info["sku"],
+            "Categories": info["categories"],
+            "Price": info["price"],
+            "Tax - GST (10%)": info["tax_gst"],
+            "Current Quantity Vie Market & Bar": qty,
+            "Default Unit Cost": info["default_unit_cost"],
+            "Unit": info["unit"],
+            "source_date": today,
+            "Stock on Hand": qty,
+        })
+
+    df = pd.DataFrame(rows)
+    print(f"✅ Fetched {len(df)} inventory items from Square")
+    return df
+
+
+# ============================================
+# Sync Customers/Members (Customers API)
+# ============================================
+
+def sync_customers() -> pd.DataFrame:
+    """
+    Fetch all customers from Square Customers API.
+
+    Returns:
+        DataFrame with member rows matching the dashboard's expected format
+    """
+    client = get_square_client()
+
+    all_customers = []
+    cursor = None
+
+    while True:
+        body = {"limit": 100}
+        if cursor:
+            body["cursor"] = cursor
+
+        result = client.customers.list_customers(
+            cursor=cursor,
+            limit=100,
+        )
+
+        if result.is_error():
+            print(f"❌ Square Customers API error: {result.errors}")
+            break
+
+        customers = result.body.get("customers", [])
+        all_customers.extend(customers)
+
+        cursor = result.body.get("cursor")
+        if not cursor:
+            break
+
+    rows = []
+    for customer in all_customers:
+        rows.append({
+            "Square Customer ID": customer.get("id", ""),
+            "First Name": customer.get("given_name", ""),
+            "Last Name": customer.get("family_name", ""),
+            "Email Address": customer.get("email_address", ""),
+            "Phone Number": customer.get("phone_number", ""),
+            "Creation Date": customer.get("created_at", ""),
+            "Customer Note": customer.get("note", ""),
+            "Reference ID": customer.get("reference_id", ""),
+        })
+
+    df = pd.DataFrame(rows)
+    print(f"✅ Fetched {len(df)} customers from Square")
+    return df
+
+
+# ============================================
+# Category Enrichment
+# ============================================
+
+def enrich_transaction_categories(tx_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Enrich transactions with category names from the catalog.
+    Square Orders API doesn't always include category names directly,
+    so we look them up from the catalog.
+    """
+    if tx_df.empty:
+        return tx_df
+
+    try:
+        inv_df = sync_inventory()
+        if inv_df.empty:
+            return tx_df
+
+        # Build item → category mapping
+        item_to_cat = dict(
+            zip(
+                inv_df["Product Name"].str.lower(),
+                inv_df["Categories"],
+            )
+        )
+
+        # Fill in missing categories
+        mask = tx_df["Category"].isna() | (tx_df["Category"] == "")
+        if mask.any():
+            tx_df.loc[mask, "Category"] = (
+                tx_df.loc[mask, "Item"]
+                .str.lower()
+                .map(item_to_cat)
+                .fillna("")
+            )
+
+    except Exception as e:
+        print(f"⚠️ Category enrichment failed: {e}")
+
+    return tx_df
+
+
+# ============================================
+# Full Sync Orchestrator
+# ============================================
+
+def run_full_sync(hours_back: int = 2) -> dict:
+    """
+    Run a full sync: transactions + inventory + customers.
+
+    Args:
+        hours_back: Hours of transaction history to fetch
+
+    Returns:
+        dict with sync results
+    """
+    from services.db_supabase import (
+        upsert_transactions,
+        upsert_inventory,
+        upsert_members,
+    )
+
+    results = {
+        "started_at": datetime.now().isoformat(),
+        "transactions": 0,
+        "inventory": 0,
+        "customers": 0,
+        "errors": [],
+    }
+
+    # 1) Sync transactions
+    try:
+        tx_df = sync_transactions(hours_back=hours_back)
+        if not tx_df.empty:
+            tx_df = enrich_transaction_categories(tx_df)
+
+            # Build row_key for deduplication (matching your existing logic)
+            base_cols = [
+                "Transaction ID", "Datetime", "Item", "Net Sales",
+                "Gross Sales", "Discounts", "Qty", "Customer ID",
+                "Modifiers Applied", "Tax", "Card Brand", "PAN Suffix"
+            ]
+            for c in base_cols:
+                if c not in tx_df.columns:
+                    tx_df[c] = ""
+
+            tx_df["__base"] = tx_df[base_cols].astype(str).agg("||".join, axis=1)
+            tx_df["__dup_idx"] = tx_df.groupby(["Transaction ID", "__base"]).cumcount()
+            tx_df["__row_key"] = tx_df["__base"] + "||" + tx_df["__dup_idx"].astype(str)
+            tx_df = tx_df.drop(columns=["__base", "__dup_idx"])
+
+            results["transactions"] = upsert_transactions(tx_df)
+    except Exception as e:
+        results["errors"].append(f"Transactions: {e}")
+        print(f"❌ Transaction sync failed: {e}")
+
+    # 2) Sync inventory
+    try:
+        inv_df = sync_inventory()
+        if not inv_df.empty:
+            results["inventory"] = upsert_inventory(inv_df)
+    except Exception as e:
+        results["errors"].append(f"Inventory: {e}")
+        print(f"❌ Inventory sync failed: {e}")
+
+    # 3) Sync customers
+    try:
+        cust_df = sync_customers()
+        if not cust_df.empty:
+            results["customers"] = upsert_members(cust_df)
+    except Exception as e:
+        results["errors"].append(f"Customers: {e}")
+        print(f"❌ Customer sync failed: {e}")
+
+    results["completed_at"] = datetime.now().isoformat()
+    results["status"] = "success" if not results["errors"] else "partial"
+
+    # Log to Supabase
+    try:
+        from services.db_supabase import get_supabase_client
+        client = get_supabase_client()
+        client.table("sync_log").insert({
+            "sync_type": "full",
+            "started_at": results["started_at"],
+            "completed_at": results["completed_at"],
+            "records_synced": results["transactions"] + results["inventory"] + results["customers"],
+            "status": results["status"],
+            "error_message": "; ".join(results["errors"]) if results["errors"] else None,
+        }).execute()
+    except Exception:
+        pass
+
+    return results
+
+
+# ============================================
+# CLI Entry Point
+# ============================================
+
+if __name__ == "__main__":
+    """Run sync from command line (used by GitHub Actions)."""
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    hours = int(sys.argv[1]) if len(sys.argv) > 1 else 2
+    print(f"🔄 Starting Square → Supabase sync ({hours}h window)...")
+
+    results = run_full_sync(hours_back=hours)
+
+    print(f"\n{'='*50}")
+    print(f"📊 Sync Results:")
+    print(f"   Transactions: {results['transactions']} rows")
+    print(f"   Inventory:    {results['inventory']} items")
+    print(f"   Customers:    {results['customers']} members")
+    print(f"   Status:       {results['status']}")
+    if results["errors"]:
+        print(f"   Errors:       {results['errors']}")
+    print(f"{'='*50}")

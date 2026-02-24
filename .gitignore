@@ -1,0 +1,51 @@
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Supabase
+supabase/.temp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# SQLite (local only - not needed in cloud)
+db/
+*.db
+*.db.tmp
+*.db.bak
+*.ingest_meta.json
+ingest.lock
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Google Drive auth (local only)
+token.json
+client_secrets.json
+
+# Logs
+*.log
+logs/
+
+# Agent / AI config
+.agent/
+.gemini/
