@@ -6,7 +6,7 @@ import re
 from typing import Union
 from itertools import combinations
 
-from services.db import get_db
+from services.db_supabase import load_inventory as _load_inventory_from_db
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
 
@@ -213,11 +213,7 @@ def _precompute(tx):
 
 @st.cache_data(show_spinner=False, persist=True)
 def load_inventory():
-    conn = get_db()
-    try:
-        return pd.read_sql("SELECT * FROM inventory", conn)
-    except Exception:
-        return pd.DataFrame()
+    return _load_inventory_from_db()
 
 
 @st.cache_data(show_spinner=False, persist=True)
@@ -228,7 +224,7 @@ def compute_combo_forecast_category(tx, combo):
 
 
 # ==================== 页面入口 ====================
-def show_product_mix_only(tx: pd.DataFrame):
+def show_product_mix_only(tx: pd.DataFrame, inv: pd.DataFrame = None):
     # === 全局样式: 让 st.dataframe 里的所有表格文字左对齐 ===
     st.markdown("""
     <style>
@@ -314,11 +310,10 @@ def show_product_mix_only(tx: pd.DataFrame):
     # --------- Inventory KPIs ---------
     st.markdown("<h3 style='font-size:18px; font-weight:700;'>📦 Inventory Details</h3>", unsafe_allow_html=True)
 
-    conn = get_db()
-    try:
-        inv = pd.read_sql("SELECT * FROM inventory", conn)
-    except Exception:
-        inv = pd.DataFrame()
+    if inv is not None and not inv.empty:
+        pass  # use the inv passed from app.py
+    else:
+        inv = load_inventory()
 
     if inv.empty:
         st.info("Inventory table not available.")

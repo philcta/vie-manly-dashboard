@@ -3,8 +3,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
-from services.db import get_db
-from datetime import datetime, timedelta, date  # 添加 date 导入
+from datetime import datetime, timedelta, date
 from services.category_rules import is_bar_category
 
 
@@ -83,129 +82,93 @@ def _safe_sum(df, col):
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def preload_all_data():
-    """预加载所有需要的数据 - 与high_level.py相同的函数"""
-    db = get_db()
+def preload_all_data(tx_df):
+    """预加载所有需要的数据 — pure pandas, no SQL"""
+    if tx_df is None or tx_df.empty:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    # 加载交易数据（包含日期信息）
-    daily_sql = """
-    WITH transaction_totals AS (
-        SELECT 
-            date(Datetime) AS date,
-            [Transaction ID] AS txn_id,
-            SUM([Gross Sales]) AS total_gross_sales,
-            SUM(COALESCE(CAST(REPLACE(REPLACE([Tax], '$', ''), ',', '') AS REAL), 0)) AS total_tax,
-            SUM(Qty) AS total_qty
-        FROM transactions
-        GROUP BY date, [Transaction ID]
+    tx = tx_df.copy()
+
+    # Ensure types
+    tx["Datetime"] = pd.to_datetime(tx["Datetime"], errors="coerce")
+    tx["date"] = tx["Datetime"].dt.normalize()
+    tx["Net Sales"] = pd.to_numeric(tx["Net Sales"], errors="coerce").fillna(0)
+    tx["Gross Sales"] = pd.to_numeric(tx.get("Gross Sales", 0), errors="coerce").fillna(0)
+    tx["Qty"] = pd.to_numeric(tx["Qty"], errors="coerce").fillna(0)
+
+    # Parse Tax column
+    if "Tax" in tx.columns:
+        tx["_tax"] = (
+            tx["Tax"].astype(str)
+            .str.replace("$", "", regex=False)
+            .str.replace(",", "", regex=False)
+        )
+        tx["_tax"] = pd.to_numeric(tx["_tax"], errors="coerce").fillna(0)
+    else:
+        tx["_tax"] = 0
+
+    # ── daily aggregation ──
+    txn_agg = tx.groupby(["date", "Transaction ID"]).agg(
+        total_gross_sales=("Gross Sales", "sum"),
+        total_tax=("_tax", "sum"),
+        total_qty=("Qty", "sum")
+    ).reset_index()
+
+    daily = txn_agg.groupby("date").agg(
+        gross_sales=("total_gross_sales", "sum"),
+        total_tax=("total_tax", "sum"),
+        transactions=("Transaction ID", "nunique"),
+        qty=("total_qty", "sum")
+    ).reset_index()
+    daily["net_sales_with_tax"] = (daily["gross_sales"] - daily["total_tax"]).round(2)
+    daily["avg_txn"] = daily.apply(
+        lambda r: r["net_sales_with_tax"] / r["transactions"] if r["transactions"] > 0 else 0, axis=1
     )
-    SELECT
-        date,
-        SUM(ROUND(total_gross_sales - total_tax, 2)) AS net_sales_with_tax,
-        SUM(total_gross_sales) AS gross_sales,
-        SUM(total_tax) AS total_tax,
-        COUNT(DISTINCT txn_id) AS transactions,
-        CASE 
-            WHEN COUNT(DISTINCT txn_id) > 0 
-            THEN SUM(ROUND(total_gross_sales - total_tax, 2)) * 1.0 / COUNT(DISTINCT txn_id)
-            ELSE 0 
-        END AS avg_txn,
-        SUM(total_qty) AS qty
-    FROM transaction_totals
-    GROUP BY date
-    ORDER BY date;
-    """
 
-    category_sql = """
-    WITH category_transactions AS (
-        SELECT 
-            date(Datetime) AS date,
-            -- 修复：处理空分类，确保所有数据都被包含
-            CASE 
-                WHEN Category IS NULL OR TRIM(Category) = '' THEN 'None'
-                ELSE Category 
-            END AS Category,
-            [Transaction ID] AS txn_id,
-            SUM([Net Sales]) AS cat_net_sales,
-            SUM(COALESCE(CAST(REPLACE(REPLACE([Tax], '$', ''), ',', '') AS REAL), 0)) AS cat_tax,
-            SUM([Gross Sales]) AS cat_gross,
-            SUM(Qty) AS cat_qty
-        FROM transactions
-        GROUP BY date, Category, [Transaction ID]
-    ),
-    category_daily AS (
-        SELECT
-            date,
-            Category,
-            txn_id,
-            SUM(ROUND(cat_net_sales + cat_tax, 2)) AS cat_total_with_tax,
-            SUM(cat_net_sales) AS cat_net_sales,
-            SUM(cat_tax) AS cat_tax,
-            SUM(cat_gross) AS cat_gross,
-            SUM(cat_qty) AS cat_qty
-        FROM category_transactions
-        GROUP BY date, Category, txn_id
+    # ── category aggregation ──
+    tx["Category"] = tx["Category"].fillna("None").replace("", "None").str.strip()
+    tx.loc[tx["Category"] == "", "Category"] = "None"
+
+    cat_txn_agg = tx.groupby(["date", "Category", "Transaction ID"]).agg(
+        cat_net_sales=("Net Sales", "sum"),
+        cat_tax=("_tax", "sum"),
+        cat_gross=("Gross Sales", "sum"),
+        cat_qty=("Qty", "sum")
+    ).reset_index()
+    cat_txn_agg["cat_total_with_tax"] = (cat_txn_agg["cat_net_sales"] + cat_txn_agg["cat_tax"]).round(2)
+
+    category = cat_txn_agg.groupby(["date", "Category"]).agg(
+        net_sales_with_tax=("cat_total_with_tax", "sum"),
+        net_sales=("cat_net_sales", "sum"),
+        total_tax=("cat_tax", "sum"),
+        transactions=("Transaction ID", "nunique"),
+        gross=("cat_gross", "sum"),
+        qty=("cat_qty", "sum")
+    ).reset_index()
+    category["avg_txn"] = category.apply(
+        lambda r: r["net_sales_with_tax"] / r["transactions"] if r["transactions"] > 0 else 0, axis=1
     )
-    SELECT
-        date,
-        Category,
-        SUM(cat_total_with_tax) AS net_sales_with_tax,
-        SUM(cat_net_sales) AS net_sales,
-        SUM(cat_tax) AS total_tax,
-        COUNT(DISTINCT txn_id) AS transactions,
-        CASE 
-            WHEN COUNT(DISTINCT txn_id) > 0 
-            THEN SUM(cat_total_with_tax) * 1.0 / COUNT(DISTINCT txn_id)
-            ELSE 0 
-        END AS avg_txn,
-        SUM(cat_gross) AS gross,
-        SUM(cat_qty) AS qty
-    FROM category_daily
-    GROUP BY date, Category
-    ORDER BY date, Category;
-    """
 
-    # 加载原始交易数据用于获取商品项（包含日期信息）
-    item_sql = """
-    SELECT 
-        date(Datetime) as date,
-        -- 修复：处理空分类
-        CASE 
-            WHEN Category IS NULL OR TRIM(Category) = '' THEN 'None'
-            ELSE Category 
-        END AS Category,
-        Item,
-        [Net Sales],
-        Tax,
-        Qty,
-        [Gross Sales]
-    FROM transactions
-    WHERE Item IS NOT NULL  -- 只排除空商品项，不排除空分类
-    """
+    # ── items_df ──
+    items_df = tx[tx["Item"].notna()][["date", "Category", "Item", "Net Sales", "Tax", "Qty", "Gross Sales"]].copy()
 
-    daily = pd.read_sql(daily_sql, db)
-    category = pd.read_sql(category_sql, db)
-    items_df = pd.read_sql(item_sql, db)
+    # ── post-processing ──
+    missing_dates = ['2025-08-18', '2025-08-19', '2025-08-20']
+    missing_ts = pd.to_datetime(missing_dates)
 
     if not daily.empty:
         daily["date"] = pd.to_datetime(daily["date"])
         daily = daily.sort_values("date")
-
-        # 移除缺失数据的日期 (8.18, 8.19, 8.20) - 所有数据都过滤
-        missing_dates = ['2025-08-18', '2025-08-19', '2025-08-20']
-        daily = daily[~daily["date"].isin(pd.to_datetime(missing_dates))]
+        daily = daily[~daily["date"].isin(missing_ts)]
 
     if not category.empty:
         category["date"] = pd.to_datetime(category["date"])
         category = category.sort_values(["Category", "date"])
-
-        # 移除缺失数据的日期 - 所有分类都过滤
-        category = category[~category["date"].isin(pd.to_datetime(missing_dates))]
+        category = category[~category["date"].isin(missing_ts)]
 
     if not items_df.empty:
         items_df["date"] = pd.to_datetime(items_df["date"])
-        # 移除缺失数据的日期 - 商品数据也过滤
-        items_df = items_df[~items_df["date"].isin(pd.to_datetime(missing_dates))]
+        items_df = items_df[~items_df["date"].isin(missing_ts)]
 
     return daily, category, items_df
 
@@ -568,7 +531,7 @@ def show_sales_report(tx: pd.DataFrame, inv: pd.DataFrame):
 
     # 预加载所有数据 - 使用与high_level.py相同的数据源
     with st.spinner("Loading data..."):
-        daily, category_tx, items_df = preload_all_data()
+        daily, category_tx, items_df = preload_all_data(tx)
 
     # 在这里添加初始化代码
     if "bar_items_select" not in st.session_state:

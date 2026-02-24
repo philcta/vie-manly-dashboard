@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.express as px
 import math
 import numpy as np
-from services.db import get_db
 from services.category_rules import is_bar_category
 
 def safe_fmt(x, digits=2, default="—"):
@@ -152,110 +151,77 @@ BAD_DATES = set(pd.to_datetime([
 ]))
 
 # === 预加载所有数据 ===
-@st.cache_data(ttl=600, show_spinner=False)
-def preload_all_data():
-    """预加载所有需要的数据"""
-    db = get_db()
+def preload_all_data(tx_df):
+    """预加载所有需要的数据 — pure pandas, no SQL"""
+    if tx_df is None or tx_df.empty:
+        return pd.DataFrame(), pd.DataFrame()
 
-    # 加载交易数据 - 修复：确保包含所有分类，包括空分类
-    daily_sql = """
-    WITH transaction_totals AS (
-        SELECT 
-            date(Datetime) AS date,
-            [Transaction ID] AS txn_id,
-            SUM([Net Sales]) AS total_net_sales,
-            SUM(Qty) AS total_qty
-        FROM transactions
-        GROUP BY date, [Transaction ID]
+    tx = tx_df.copy()
+
+    # Ensure Datetime is datetime type
+    tx["Datetime"] = pd.to_datetime(tx["Datetime"], errors="coerce")
+    tx["date"] = tx["Datetime"].dt.normalize()
+    tx["Net Sales"] = pd.to_numeric(tx["Net Sales"], errors="coerce").fillna(0)
+    tx["Qty"] = pd.to_numeric(tx["Qty"], errors="coerce").fillna(0)
+
+    # ── daily aggregation (replaces daily_sql) ──
+    txn_agg = tx.groupby(["date", "Transaction ID"]).agg(
+        total_net_sales=("Net Sales", "sum"),
+        total_qty=("Qty", "sum")
+    ).reset_index()
+
+    daily = txn_agg.groupby("date").agg(
+        net_sales=("total_net_sales", "sum"),
+        transactions=("Transaction ID", "nunique"),
+        qty=("total_qty", "sum")
+    ).reset_index()
+    daily["avg_txn"] = daily.apply(
+        lambda r: r["net_sales"] / r["transactions"] if r["transactions"] > 0 else 0, axis=1
     )
-    SELECT
-        date,
-        SUM(total_net_sales) AS net_sales,
-        COUNT(DISTINCT txn_id) AS transactions,
-        CASE 
-            WHEN COUNT(DISTINCT txn_id) > 0 
-            THEN SUM(total_net_sales) * 1.0 / COUNT(DISTINCT txn_id)
-            ELSE 0 
-        END AS avg_txn,
-        SUM(total_qty) AS qty
-    FROM transaction_totals
-    GROUP BY date
-    ORDER BY date;
-    """
 
-    category_sql = """
-    WITH category_transactions AS (
-        SELECT 
-            date(Datetime) AS date,
-            CASE 
-                WHEN Category IS NULL OR TRIM(Category) = '' THEN 'None'
-                ELSE Category 
-            END AS Category,
-            [Transaction ID] AS txn_id,
-            SUM([Net Sales]) AS cat_net_sales,
-            SUM(Qty) AS cat_qty
-        FROM transactions
-        GROUP BY date, Category, [Transaction ID]
+    # ── category aggregation (replaces category_sql) ──
+    tx["Category"] = tx["Category"].fillna("None").replace("", "None").str.strip()
+    tx.loc[tx["Category"] == "", "Category"] = "None"
+
+    cat_txn_agg = tx.groupby(["date", "Category", "Transaction ID"]).agg(
+        cat_net_sales=("Net Sales", "sum"),
+        cat_qty=("Qty", "sum")
+    ).reset_index()
+
+    category = cat_txn_agg.groupby(["date", "Category"]).agg(
+        net_sales=("cat_net_sales", "sum"),
+        transactions=("Transaction ID", "nunique"),
+        qty=("cat_qty", "sum")
+    ).reset_index()
+    category["avg_txn"] = category.apply(
+        lambda r: r["net_sales"] / r["transactions"] if r["transactions"] > 0 else 0, axis=1
     )
-    SELECT
-        date,
-        Category,
-        SUM(cat_net_sales) AS net_sales,
-        COUNT(DISTINCT txn_id) AS transactions,
-        CASE 
-            WHEN COUNT(DISTINCT txn_id) > 0 
-            THEN SUM(cat_net_sales) * 1.0 / COUNT(DISTINCT txn_id)
-            ELSE 0 
-        END AS avg_txn,
-        SUM(cat_qty) AS qty
-    FROM category_transactions
-    GROUP BY date, Category
-    ORDER BY date, Category;
-    """
 
-    daily = pd.read_sql(daily_sql, db)
-    category = pd.read_sql(category_sql, db)
-
+    # ── post-processing (same as before) ──
     if not daily.empty:
-        daily["date_raw"] = daily["date"]  # 保留原始值（只用于调试）
+        daily["date_raw"] = daily["date"]
         daily["date"] = pd.to_datetime(daily["date"], errors="coerce").dt.normalize()
 
-        # ⚠️ 不直接 drop
         invalid_mask = daily["date"].isna()
-
         if invalid_mask.any():
-            # 只记录，不杀数据
-            print(
-                "⚠️ High level: invalid date rows:",
-                daily.loc[invalid_mask, "date_raw"].unique()[:5]
-            )
+            print("⚠️ High level: invalid date rows:", daily.loc[invalid_mask, "date_raw"].unique()[:5])
 
         daily = daily.sort_values("date")
-
         daily["_is_bad_date"] = daily["date"].isin(BAD_DATES)
-
-        # 计算滚动平均值
         daily["3M_Avg_Rolling"] = daily["net_sales"].rolling(window=90, min_periods=1, center=False).mean()
         daily["6M_Avg_Rolling"] = daily["net_sales"].rolling(window=180, min_periods=1, center=False).mean()
 
     if not category.empty:
         category["date"] = pd.to_datetime(category["date"], errors="coerce")
-        # === 修复：过滤掉转换失败的日期 ===
         category = category[category["date"].notna()]
         category = category.sort_values(["Category", "date"])
 
-        # 移除缺失数据的日期 - 所有分类都过滤
-        #category = category[~category["date"].isin(pd.to_datetime(missing_dates))]
-
-        # 为每个分类计算滚动平均值
         category_with_rolling = []
         for cat in category["Category"].unique():
             cat_data = category[category["Category"] == cat].copy()
             cat_data = cat_data.sort_values("date")
-            cat_data["3M_Avg_Rolling"] = cat_data["net_sales"].rolling(window=90, min_periods=1,
-                                                                                center=False).mean()
-            cat_data["6M_Avg_Rolling"] = cat_data["net_sales"].rolling(window=180, min_periods=1,
-                                                                                center=False).mean()
+            cat_data["3M_Avg_Rolling"] = cat_data["net_sales"].rolling(window=90, min_periods=1, center=False).mean()
+            cat_data["6M_Avg_Rolling"] = cat_data["net_sales"].rolling(window=180, min_periods=1, center=False).mean()
             category_with_rolling.append(cat_data)
 
         category = pd.concat(category_with_rolling, ignore_index=True)
@@ -1147,7 +1113,7 @@ def show_high_level(tx: pd.DataFrame, mem: pd.DataFrame, inv: pd.DataFrame):
 
     # 预加载所有数据
     with st.spinner("Loading data..."):
-        daily, category_tx = preload_all_data()
+        daily, category_tx = preload_all_data(tx)
         inv_grouped, inv_latest_date = _prepare_inventory_grouped(inv)
 
     # 初始化分类选择的 session state

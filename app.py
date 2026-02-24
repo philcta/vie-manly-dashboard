@@ -302,6 +302,6 @@ elif section == "Sales report by category":
 elif section == "Inventory":
     show_inventory(tx, inv)
 elif section == "product mix":
-    show_product_mix_only(tx)
+    show_product_mix_only(tx, inv)
 elif section == "Customers insights":
     show_customer_segmentation(tx, mem)
