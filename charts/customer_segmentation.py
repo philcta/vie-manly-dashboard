@@ -87,7 +87,7 @@ def cached_segmentation_preprocess(tx, members):
 
     # === Prepare Datetime ===
     tx = tx.copy()
-    tx["Datetime"] = pd.to_datetime(tx.get("Datetime"), errors="coerce")
+    tx["Datetime"] = pd.to_datetime(tx.get("Datetime"), errors="coerce", utc=True).dt.tz_localize(None)
 
     # === member flag ===
     from services.analytics import member_flagged_transactions
@@ -95,7 +95,7 @@ def cached_segmentation_preprocess(tx, members):
 
     # === unify Customer ID ===
     if "Customer Name" in df.columns and "Customer ID" in df.columns:
-        df["Datetime"] = pd.to_datetime(df["Datetime"], errors="coerce")
+        df["Datetime"] = pd.to_datetime(df["Datetime"], errors="coerce", utc=True).dt.tz_localize(None)
         latest_ids = (
             df.dropna(subset=["Customer Name", "Customer ID", "Datetime"])
             .sort_values("Datetime")
@@ -339,7 +339,7 @@ def show_customer_segmentation(tx, members):
     members = members.copy()
 
     # === Prepare Datetime column ===
-    tx["Datetime"] = pd.to_datetime(tx.get("Datetime", pd.NaT), errors="coerce")
+    tx["Datetime"] = pd.to_datetime(tx.get("Datetime", pd.NaT), errors="coerce", utc=True).dt.tz_localize(None)
     today = pd.Timestamp.today().normalize()
     four_weeks_ago = today - pd.Timedelta(weeks=4)
 
@@ -349,7 +349,7 @@ def show_customer_segmentation(tx, members):
     # === 新增：统一 Customer Name 与最新 Customer ID ===
     if "Customer Name" in df.columns and "Customer ID" in df.columns and "Datetime" in df.columns:
         # 确保 Datetime 为时间格式
-        df["Datetime"] = pd.to_datetime(df["Datetime"], errors="coerce")
+        df["Datetime"] = pd.to_datetime(df["Datetime"], errors="coerce", utc=True).dt.tz_localize(None)
 
         # 找到每个 Customer Name 最近一次交易对应的 Customer ID
         latest_ids = (df.dropna(subset=["Customer Name", "Customer ID", "Datetime"])

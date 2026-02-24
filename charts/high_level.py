@@ -158,8 +158,8 @@ def preload_all_data(tx_df):
 
     tx = tx_df.copy()
 
-    # Ensure Datetime is datetime type
-    tx["Datetime"] = pd.to_datetime(tx["Datetime"], errors="coerce")
+    # Ensure Datetime is datetime type (strip any timezone)
+    tx["Datetime"] = pd.to_datetime(tx["Datetime"], errors="coerce", utc=True).dt.tz_localize(None)
     tx["date"] = tx["Datetime"].dt.normalize()
     tx["Net Sales"] = pd.to_numeric(tx["Net Sales"], errors="coerce").fillna(0)
     tx["Qty"] = pd.to_numeric(tx["Qty"], errors="coerce").fillna(0)

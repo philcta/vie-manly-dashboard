@@ -206,7 +206,7 @@ def _holt_weekly_forecast(series_df: pd.DataFrame, forecast_weeks: int = FORECAS
 @st.cache_data(show_spinner=False, persist=True)
 def _precompute(tx):
     tx = tx.copy()
-    tx["Datetime"] = pd.to_datetime(tx["Datetime"], errors="coerce")
+    tx["Datetime"] = pd.to_datetime(tx["Datetime"], errors="coerce", utc=True).dt.tz_localize(None)
     tx["date"] = tx["Datetime"].dt.date
     return tx
 
@@ -270,7 +270,7 @@ def show_product_mix_only(tx: pd.DataFrame, inv: pd.DataFrame = None):
         return
 
     # 🔹 统一 Datetime/date 类型为 Timestamp
-    tx["Datetime"] = pd.to_datetime(tx["Datetime"], errors="coerce")
+    tx["Datetime"] = pd.to_datetime(tx["Datetime"], errors="coerce", utc=True).dt.tz_localize(None)
     tx["date"] = tx["Datetime"].dt.normalize()  # 保持 Timestamp，不转成 date
 
     # --------- 建议 ---------

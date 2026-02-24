@@ -579,7 +579,7 @@ def show_inventory(tx, inventory: pd.DataFrame):
             end_ts = selected_date_ts + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
 
             # === 修改：按 Item Name 和 Variation Name 连接 transaction 表 ===
-            tx["Datetime"] = pd.to_datetime(tx["Datetime"], errors="coerce")
+            tx["Datetime"] = pd.to_datetime(tx["Datetime"], errors="coerce", utc=True).dt.tz_localize(None)
             past_4w_start = selected_date_ts - pd.Timedelta(days=28)
             recent_tx = tx[(tx["Datetime"] >= past_4w_start) & (tx["Datetime"] <= end_ts)].copy()
 
