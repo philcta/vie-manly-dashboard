@@ -259,9 +259,9 @@ def load_transactions(days=365, time_from=None, time_to=None) -> pd.DataFrame:
     # Rename to display names (what the charts expect)
     df = _rename_to_display(df)
 
-    # Parse datetime
+    # Parse datetime and strip timezone (Supabase stores UTC, charts use naive Timestamps)
     if "Datetime" in df.columns:
-        df["Datetime"] = pd.to_datetime(df["Datetime"], errors="coerce")
+        df["Datetime"] = pd.to_datetime(df["Datetime"], errors="coerce", utc=True).dt.tz_localize(None)
 
     return df
 
