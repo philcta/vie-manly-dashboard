@@ -1,14 +1,22 @@
-pymongo[srv]>=4.6
+# === Core ===
+streamlit==1.50.0
 pandas
+numpy
+
+# === Charts ===
 altair
 plotly
-openpyxl
-xlrd
-numpy
+
+# === Analytics ===
 scikit-learn
 statsmodels
-faker
-pydrive2
-psutil==5.9.8
-importlib_metadata
-streamlit==1.50.0
+
+# === Database (Supabase REST API via urllib — no extra packages needed) ===
+# supabase connectivity is handled by db_supabase.py using built-in urllib
+
+# === File handling ===
+openpyxl
+xlrd
+
+# === Utilities ===
+python-dotenv
