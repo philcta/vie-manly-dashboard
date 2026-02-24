@@ -582,6 +582,8 @@ def prepare_chart_data_fast(daily, category_tx, inv_grouped, time_range, data_se
 
             # 按月汇总该分类的 net_sales
             cat_data = cat_data.set_index("date").sort_index()
+            if "net_sales" not in cat_data.columns:
+                continue
             monthly_agg = (
                 cat_data["net_sales"]
                 .resample("MS")              # Month Start，每月1号
