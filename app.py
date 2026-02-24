@@ -185,9 +185,9 @@ st.sidebar.subheader("🛠️ Database")
 # --- 1) Sync from Square (replaces Clear & Rebuild) ---
 if st.sidebar.button("🔄 Sync from Square"):
     try:
-        from services.square_sync import run_sync
+        from services.square_sync import run_full_sync
         with st.spinner("Syncing data from Square..."):
-            result = run_sync(hours_back=24)
+            result = run_full_sync(hours_back=24)
             reload_db_cache()
             st.sidebar.success(f"✅ Sync complete: {result.get('transactions', 0)} transactions synced")
             st.rerun()
