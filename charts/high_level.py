@@ -71,7 +71,7 @@ def persisting_multiselect(label, options, key, default=None, width_chars=None):
     </style>
     """, unsafe_allow_html=True)
 
-    return st.multiselect(label, options, default=st.session_state[key], key=key)
+    return st.multiselect(label, options, key=key)
 
 
 # === 预加载所有数据 ===
