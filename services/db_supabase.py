@@ -236,6 +236,21 @@ def _paginated_select(table, filters=None, order=None):
     return all_data
 
 
+def get_latest_transaction_date() -> str | None:
+    """Return the latest transaction datetime string from Supabase, or None if empty."""
+    client = get_supabase_client()
+    result = client.table_select(
+        "transactions",
+        columns="datetime",
+        order="datetime.desc",
+        limit=1,
+    )
+    rows = result.get("data", [])
+    if rows and rows[0].get("datetime"):
+        return rows[0]["datetime"]
+    return None
+
+
 def load_transactions(days=365, time_from=None, time_to=None) -> pd.DataFrame:
     """Load transactions from Supabase, returning DataFrame with original column names."""
     filters = []

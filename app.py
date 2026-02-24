@@ -185,11 +185,12 @@ st.sidebar.subheader("🛠️ Database")
 # --- 1) Sync from Square (replaces Clear & Rebuild) ---
 if st.sidebar.button("🔄 Sync from Square"):
     try:
-        from services.square_sync import run_full_sync
-        with st.spinner("Syncing data from Square..."):
-            result = run_full_sync(hours_back=24)
+        from services.square_sync import run_smart_sync
+        with st.spinner("Detecting data gap and syncing from Square..."):
+            result = run_smart_sync()
             reload_db_cache()
-            st.sidebar.success(f"✅ Sync complete: {result.get('transactions', 0)} transactions synced")
+            gap = result.get('gap_info', '')
+            st.sidebar.success(f"✅ Sync complete: {result.get('transactions', 0)} transactions synced ({gap})")
             st.rerun()
     except ImportError:
         st.sidebar.warning("⚠️ Square sync not configured yet. Set SQUARE_ACCESS_TOKEN in .env")

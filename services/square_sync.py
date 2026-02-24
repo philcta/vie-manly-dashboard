@@ -89,12 +89,13 @@ def get_location_id() -> str:
 # Sync Transactions (Orders API)
 # ============================================
 
-def sync_transactions(hours_back: int = 2) -> pd.DataFrame:
+def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None) -> pd.DataFrame:
     """
     Fetch recent transactions from Square Orders API.
 
     Args:
         hours_back: How many hours of data to fetch (default: 2 for hourly cron with overlap)
+        start_from: If provided, fetch from this datetime instead of using hours_back
 
     Returns:
         DataFrame with transaction rows in the dashboard's expected format
@@ -103,7 +104,14 @@ def sync_transactions(hours_back: int = 2) -> pd.DataFrame:
     location_id = get_location_id()
 
     now = datetime.now(timezone.utc)
-    start_time = now - timedelta(hours=hours_back)
+    if start_from is not None:
+        # Ensure it's timezone-aware (UTC)
+        if start_from.tzinfo is None:
+            start_time = start_from.replace(tzinfo=timezone.utc)
+        else:
+            start_time = start_from
+    else:
+        start_time = now - timedelta(hours=hours_back)
 
     all_orders = []
     cursor = None
@@ -568,6 +576,116 @@ def run_full_sync(hours_back: int = 2) -> dict:
 
 
 # ============================================
+# Smart Sync (fill missing data)
+# ============================================
+
+def run_smart_sync() -> dict:
+    """
+    Detect the latest transaction in Supabase, then sync only the gap
+    from that point to now.  Falls back to 365 days if the table is empty.
+
+    Returns:
+        dict with sync results (same format as run_full_sync)
+    """
+    from services.db_supabase import get_latest_transaction_date
+
+    latest = get_latest_transaction_date()          # e.g. "2025-06-15T23:45:00+00:00"
+
+    if latest:
+        latest_dt = datetime.fromisoformat(latest.replace("Z", "+00:00"))
+        # Overlap by 2 hours to catch any edge-case duplicates (upsert handles dedup)
+        start_from = latest_dt - timedelta(hours=2)
+        gap = datetime.now(timezone.utc) - latest_dt
+        gap_hours = round(gap.total_seconds() / 3600, 1)
+        gap_days  = round(gap.total_seconds() / 86400, 1)
+        print(f"📊 Latest transaction in Supabase: {latest_dt.isoformat()}")
+        print(f"📊 Gap to fill: ~{gap_days} days ({gap_hours} hours)")
+    else:
+        # Empty database — pull last 365 days
+        start_from = datetime.now(timezone.utc) - timedelta(days=365)
+        print("📊 No transactions found in Supabase — pulling last 365 days")
+
+    # Use run_full_sync but override the start_from for transactions
+    from services.db_supabase import (
+        upsert_transactions,
+        upsert_inventory,
+        upsert_members,
+    )
+
+    results = {
+        "started_at": datetime.now().isoformat(),
+        "transactions": 0,
+        "inventory": 0,
+        "customers": 0,
+        "errors": [],
+        "gap_info": f"from {start_from.isoformat()}",
+    }
+
+    # 1) Sync transactions from the detected gap
+    try:
+        tx_df = sync_transactions(start_from=start_from)
+        if not tx_df.empty:
+            tx_df = enrich_transaction_categories(tx_df)
+
+            base_cols = [
+                "Transaction ID", "Datetime", "Item", "Net Sales",
+                "Gross Sales", "Discounts", "Qty", "Customer ID",
+                "Modifiers Applied", "Tax", "Card Brand", "PAN Suffix"
+            ]
+            for c in base_cols:
+                if c not in tx_df.columns:
+                    tx_df[c] = ""
+
+            tx_df["__base"] = tx_df[base_cols].astype(str).agg("||".join, axis=1)
+            tx_df["__dup_idx"] = tx_df.groupby(["Transaction ID", "__base"]).cumcount()
+            tx_df["__row_key"] = tx_df["__base"] + "||" + tx_df["__dup_idx"].astype(str)
+            tx_df = tx_df.drop(columns=["__base", "__dup_idx"])
+
+            results["transactions"] = upsert_transactions(tx_df)
+    except Exception as e:
+        results["errors"].append(f"Transactions: {e}")
+        print(f"❌ Transaction sync failed: {e}")
+
+    # 2) Sync inventory (always full snapshot)
+    try:
+        inv_df = sync_inventory()
+        if not inv_df.empty:
+            results["inventory"] = upsert_inventory(inv_df)
+    except Exception as e:
+        results["errors"].append(f"Inventory: {e}")
+        print(f"❌ Inventory sync failed: {e}")
+
+    # 3) Sync customers (always full snapshot)
+    try:
+        cust_df = sync_customers()
+        if not cust_df.empty:
+            results["customers"] = upsert_members(cust_df)
+    except Exception as e:
+        results["errors"].append(f"Customers: {e}")
+        print(f"❌ Customer sync failed: {e}")
+
+    results["completed_at"] = datetime.now().isoformat()
+    results["status"] = "success" if not results["errors"] else "partial"
+
+    # Log to Supabase
+    try:
+        from services.db_supabase import get_supabase_client
+        client = get_supabase_client()
+        client.table("sync_log").insert({
+            "sync_type": "smart",
+            "started_at": results["started_at"],
+            "completed_at": results["completed_at"],
+            "records_synced": results["transactions"] + results["inventory"] + results["customers"],
+            "status": results["status"],
+            "error_message": "; ".join(results["errors"]) if results["errors"] else None,
+        }).execute()
+    except Exception:
+        pass
+
+    return results
+
+
+# ============================================
 # CLI Entry Point
 # ============================================
 
@@ -576,10 +694,14 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
 
-    hours = int(sys.argv[1]) if len(sys.argv) > 1 else 2
-    print(f"🔄 Starting Square → Supabase sync ({hours}h window)...")
-
-    results = run_full_sync(hours_back=hours)
+    # If --smart flag passed, use smart sync; otherwise use hours_back
+    if "--smart" in sys.argv:
+        print("🔄 Starting smart Square → Supabase sync (filling missing data)...")
+        results = run_smart_sync()
+    else:
+        hours = int(sys.argv[1]) if len(sys.argv) > 1 else 2
+        print(f"🔄 Starting Square → Supabase sync ({hours}h window)...")
+        results = run_full_sync(hours_back=hours)
 
     print(f"\n{'='*50}")
     print(f"📊 Sync Results:")
@@ -587,6 +709,8 @@ if __name__ == "__main__":
     print(f"   Inventory:    {results['inventory']} items")
     print(f"   Customers:    {results['customers']} members")
     print(f"   Status:       {results['status']}")
+    if results.get("gap_info"):
+        print(f"   Gap:          {results['gap_info']}")
     if results["errors"]:
         print(f"   Errors:       {results['errors']}")
     print(f"{'='*50}")
