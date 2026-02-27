@@ -213,10 +213,10 @@ def _rename_to_db(df: pd.DataFrame) -> pd.DataFrame:
 
 def _paginated_select(table, columns="*", filters=None, order=None):
     """Fetch all rows from a table using pagination.
-    Supabase free tier limits responses to 1000 rows max."""
+    Requires Supabase Dashboard > Settings > API > Max Rows = 10000."""
     client = get_supabase_client()
     all_data = []
-    page_size = 1000  # Supabase free-tier max per request
+    page_size = 10000  # Must match Supabase 'Max Rows' setting
     offset = 0
 
     while True:
