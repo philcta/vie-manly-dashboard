@@ -711,7 +711,7 @@ def show_sales_report(tx: pd.DataFrame, inv: pd.DataFrame):
     def time_range_summary(data, cats, range_type, start_dt, end_dt):
         # 确保包含所有指定的分类，即使当天没有销售数据
         # 先创建一个包含所有分类的空DataFrame作为基础
-        all_cats_df = pd.DataFrame({"Category": list(cats)})
+        all_cats_df = pd.DataFrame({"Category": list(cats)}).astype({"Category": str})
 
         # 获取当天的数据
         sub = data[data["Category"].isin(cats)].copy()
