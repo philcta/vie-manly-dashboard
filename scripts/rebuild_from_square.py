@@ -207,30 +207,6 @@ def process_data(orders, refunds, catalog_map):
                 "time_zone": "Sydney",
                 "row_key": f"{order_id}-LI-{idx}"
             })
-            
-        # Service Charges (e.g. Surcharges)
-        for idx, sc in enumerate(order.get("service_charges", [])):
-            sc_name = sc.get("name", "Surcharge")
-            sc_total = int(sc.get("total_money", {}).get("amount", 0))
-            sc_tax = int(sc.get("total_tax_money", {}).get("amount", 0))
-            rows.append({
-                "datetime": datetime_str,
-                "category": "Surcharge",
-                "item": sc_name,
-                "qty": 1,
-                "net_sales": round((sc_total - sc_tax)/100.0, 2),
-                "gross_sales": round(sc_total/100.0, 2),
-                "discounts": 0,
-                "customer_id": customer_id,
-                "transaction_id": order_id,
-                "tax": str(round(sc_tax/100.0, 2)),
-                "card_brand": card_brand,
-                "pan_suffix": pan_suffix,
-                "date": date_str,
-                "time": time_str,
-                "time_zone": "Sydney",
-                "row_key": f"{order_id}-SC-{idx}"
-            })
 
     # Process Refunds (Subtractions)
     for refund in refunds:
@@ -272,6 +248,15 @@ def truncate_transactions():
     }, method="DELETE")
     try:
         urllib.request.urlopen(req, timeout=120)
+        # Verify
+        url_count = f"{SUPA_URL}/rest/v1/transactions?select=id&limit=1"
+        req_count = urllib.request.Request(url_count, headers={
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+            "Prefer": "count=exact"
+        })
+        resp = urllib.request.urlopen(req_count)
+        print(f"  Count after truncate: {resp.info().get('Content-Range')}")
         return True
     except Exception as e:
         print(f"  ❌ Failed: {e}")
@@ -311,28 +296,52 @@ def main():
         rows = process_data(orders, refunds, catalog_map)
         
         if rows:
-            # Batch Insert
+            # Check for duplicate row_keys in this month's data
+            seen_keys = set()
+            uniques = []
+            dupes = 0
+            for r in rows:
+                rk = r['row_key']
+                if rk in seen_keys:
+                    dupes += 1
+                else:
+                    seen_keys.add(rk)
+                    uniques.append(r)
+            if dupes > 0:
+                print(f"  ⚠️ Warning: Found {dupes} duplicate row_keys in this period's data. Filtering out.")
+            rows = uniques
+            
+            # Batch Insert with Retry
             for i in range(0, len(rows), BATCH_SIZE):
                 batch = rows[i:i+BATCH_SIZE]
-                url = f"{SUPA_URL}/rest/v1/transactions"
+                # Correct PostgREST upsert: use on_conflict query param
+                url = f"{SUPA_URL}/rest/v1/transactions?on_conflict=row_key"
                 headers = {
                     "apikey": SUPA_SERVICE_KEY or SUPA_KEY,
                     "Authorization": f"Bearer {SUPA_SERVICE_KEY or SUPA_KEY}",
                     "Content-Type": "application/json",
                     "Prefer": "resolution=merge-duplicates,return=minimal",
                 }
-                req = urllib.request.Request(url, data=json.dumps(batch).encode(), headers=headers, method="POST")
-                try:
-                    urllib.request.urlopen(req, timeout=60)
-                except Exception as e:
-                    print(f"\n  ❌ Batch failed: {e}")
+                
+                success = False
+                for attempt in range(3):
+                    req = urllib.request.Request(url, data=json.dumps(batch).encode(), headers=headers, method="POST")
+                    try:
+                        urllib.request.urlopen(req, timeout=60)
+                        success = True
+                        break
+                    except Exception as e:
+                        print(f"\n  ⚠️ Attempt {attempt+1} failed: {e}")
+                
+                if not success:
+                    print(f"\n  ❌ Batch failed after 3 attempts.")
             
             total_rows += len(rows)
             print(f" {len(rows)} rows inserted.", flush=True)
         else:
             print(" no data.", flush=True)
             
-        current = period_end
+        current = nxt
 
     print(f"\nSUCCESS. Total rows in Supabase: {total_rows}")
 
