@@ -74,7 +74,19 @@ def supa_request(endpoint, body=None, method="GET", use_service_key=False):
 # ── Logic ──
 
 def build_catalog_map():
+    """Build item_name -> category_name map from the Square Catalog API.
+    
+    Uses item_data.reporting_category.id to resolve the single reporting
+    category for each item (equivalent to CSV Col I 'Reporting Category').
+    This field is populated for virtually all items, unlike the deprecated
+    category_id field.
+    
+    Returns:
+        catalog_map: dict  lowercase item_name -> category_name
+    """
     print("Fetching Square catalog...")
+    
+    # Step 1: Fetch all CATEGORY objects -> id:name map
     cat_names = {}
     cursor = None
     while True:
@@ -86,8 +98,10 @@ def build_catalog_map():
             cat_names[obj["id"]] = obj.get("category_data", {}).get("name", "")
         cursor = data.get("cursor")
         if not cursor: break
+    print(f"  Found {len(cat_names)} categories")
     
-    item_to_cat = {}
+    # Step 2: Fetch all ITEM objects -> item_name:category_name map
+    catalog_map = {}
     cursor = None
     while True:
         params = "types=ITEM"
@@ -97,16 +111,39 @@ def build_catalog_map():
         for obj in data.get("objects", []):
             item_data = obj.get("item_data", {})
             name = item_data.get("name", "")
-            cat_name = cat_names.get(item_data.get("category_id", ""), "")
-            if name:
-                item_to_cat[name.lower()] = cat_name
+            if not name:
+                continue
+            
+            # Use reporting_category (always populated, single value)
+            reporting = item_data.get("reporting_category")
+            if reporting and isinstance(reporting, dict):
+                cat_name = cat_names.get(reporting.get("id", ""), "")
+            else:
+                cat_name = ""
+            
+            if cat_name:
+                catalog_map[name.lower()] = cat_name
                 for var in item_data.get("variations", []):
                     v_name = var.get("item_variation_data", {}).get("name", "")
                     if v_name and v_name != name:
-                        item_to_cat[f"{name} - {v_name}".lower()] = cat_name
+                        catalog_map[f"{name} - {v_name}".lower()] = cat_name
         cursor = data.get("cursor")
         if not cursor: break
-    return item_to_cat
+    
+    print(f"  Built {len(catalog_map)} item->category mappings")
+    return catalog_map
+
+
+def lookup_category(display_name, item_name, catalog_map):
+    """Look up category from catalog map.
+    Tries display_name first (e.g. 'Coffee - Long Black'), then base name ('Coffee').
+    Returns category name or empty string.
+    """
+    return (
+        catalog_map.get(display_name.strip().lower()) or
+        catalog_map.get(item_name.strip().lower()) or
+        ""
+    )
 
 def fetch_orders(start_dt, end_dt):
     all_orders = []
@@ -151,6 +188,8 @@ def fetch_refunds(start_dt, end_dt):
 
 def process_data(orders, refunds, catalog_map):
     rows = []
+    matched = 0
+    unmatched = 0
     
     # Process Orders
     for order in orders:
@@ -177,7 +216,12 @@ def process_data(orders, refunds, catalog_map):
             qty = float(item.get("quantity", "0"))
             var_name = item.get("variation_name", "")
             display_name = f"{name} - {var_name}" if var_name and var_name != name else name
-            category = catalog_map.get(display_name.lower(), catalog_map.get(name.lower(), ""))
+            
+            category = lookup_category(display_name, name, catalog_map)
+            if category:
+                matched += 1
+            else:
+                unmatched += 1
             
             total = int(item.get("total_money", {}).get("amount", 0))
             tax = int(item.get("total_tax_money", {}).get("amount", 0))
@@ -236,7 +280,7 @@ def process_data(orders, refunds, catalog_map):
             "row_key": f"REFUND-{rf_id}"
         })
 
-    return rows
+    return rows, matched, unmatched
 
 def truncate_transactions():
     print("Truncating transactions table...")
@@ -265,7 +309,7 @@ def truncate_transactions():
 def main():
     print("REBUILDING SUPABASE WITH AUDITED LOGIC")
     if not all([TOKEN, LOC_ID, SUPA_URL]):
-        print("❌ Missing environment variables")
+        print("Missing environment variables")
         return
 
     catalog_map = build_catalog_map()
@@ -276,15 +320,17 @@ def main():
     end_date = datetime.now(SYDNEY_TZ)
     
     if not truncate_transactions():
-        print("🛑 Truncate failed. Aborting for safety.")
+        print("Truncate failed. Aborting for safety.")
         return
 
     current = start_date
     total_rows = 0
+    total_matched = 0
+    total_unmatched = 0
+    
     while current < end_date:
         # Process monthly
         nxt = (current.replace(day=28) + timedelta(days=4)).replace(day=1)
-        # Use one second before start of next month to avoid overlaps
         period_end = nxt - timedelta(seconds=1)
         if period_end > end_date:
             period_end = end_date
@@ -293,28 +339,24 @@ def main():
         
         orders = fetch_orders(current, period_end)
         refunds = fetch_refunds(current, period_end)
-        rows = process_data(orders, refunds, catalog_map)
+        rows, matched, unmatched = process_data(orders, refunds, catalog_map)
+        
+        total_matched += matched
+        total_unmatched += unmatched
         
         if rows:
-            # Check for duplicate row_keys in this month's data
+            # Deduplicate row_keys
             seen_keys = set()
             uniques = []
-            dupes = 0
             for r in rows:
-                rk = r['row_key']
-                if rk in seen_keys:
-                    dupes += 1
-                else:
-                    seen_keys.add(rk)
+                if r['row_key'] not in seen_keys:
+                    seen_keys.add(r['row_key'])
                     uniques.append(r)
-            if dupes > 0:
-                print(f"  ⚠️ Warning: Found {dupes} duplicate row_keys in this period's data. Filtering out.")
             rows = uniques
             
             # Batch Insert with Retry
             for i in range(0, len(rows), BATCH_SIZE):
                 batch = rows[i:i+BATCH_SIZE]
-                # Correct PostgREST upsert: use on_conflict query param
                 url = f"{SUPA_URL}/rest/v1/transactions?on_conflict=row_key"
                 headers = {
                     "apikey": SUPA_SERVICE_KEY or SUPA_KEY,
@@ -323,18 +365,13 @@ def main():
                     "Prefer": "resolution=merge-duplicates,return=minimal",
                 }
                 
-                success = False
                 for attempt in range(3):
                     req = urllib.request.Request(url, data=json.dumps(batch).encode(), headers=headers, method="POST")
                     try:
                         urllib.request.urlopen(req, timeout=60)
-                        success = True
                         break
                     except Exception as e:
-                        print(f"\n  ⚠️ Attempt {attempt+1} failed: {e}")
-                
-                if not success:
-                    print(f"\n  ❌ Batch failed after 3 attempts.")
+                        print(f"\n  Attempt {attempt+1} failed: {e}")
             
             total_rows += len(rows)
             print(f" {len(rows)} rows inserted.", flush=True)
@@ -343,7 +380,10 @@ def main():
             
         current = nxt
 
+    total = total_matched + total_unmatched
+    pct = (total_matched / total * 100) if total else 0
     print(f"\nSUCCESS. Total rows in Supabase: {total_rows}")
+    print(f"Category mapping: {total_matched}/{total} matched ({pct:.1f}%), {total_unmatched} unmatched")
 
 if __name__ == "__main__":
     main()

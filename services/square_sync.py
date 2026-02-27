@@ -14,6 +14,7 @@ Can be run as:
 
 import os
 import sys
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -86,12 +87,87 @@ def get_location_id() -> str:
 
 
 # ============================================
+# Category Mapping (from Square Catalog API)
+# ============================================
+
+def build_catalog_map():
+    """Build item_name -> category_name map from the Square Catalog API.
+    
+    Uses item_data.reporting_category.id to resolve the single reporting
+    category for each item. This field is populated for virtually all items,
+    unlike the deprecated category_id.
+    
+    Returns:
+        catalog_map: dict  lowercase item_name -> category_name
+    """
+    client = get_square_client()
+    
+    # Step 1: Get all CATEGORY objects -> id:name map
+    cat_names = {}
+    cursor = None
+    while True:
+        result = client.catalog.list_catalog(cursor=cursor, types="CATEGORY")
+        if result.is_error():
+            break
+        for obj in result.body.get("objects", []):
+            cat_names[obj["id"]] = obj.get("category_data", {}).get("name", "")
+        cursor = result.body.get("cursor")
+        if not cursor:
+            break
+    
+    # Step 2: Build item name -> category map using reporting_category
+    catalog_map = {}
+    cursor = None
+    while True:
+        result = client.catalog.list_catalog(cursor=cursor, types="ITEM")
+        if result.is_error():
+            break
+        for obj in result.body.get("objects", []):
+            item_data = obj.get("item_data", {})
+            name = item_data.get("name", "")
+            if not name:
+                continue
+            
+            # Use reporting_category (always populated, single value)
+            reporting = item_data.get("reporting_category")
+            if reporting and isinstance(reporting, dict):
+                cat_name = cat_names.get(reporting.get("id", ""), "")
+            else:
+                cat_name = ""
+            
+            if cat_name:
+                catalog_map[name.lower()] = cat_name
+                for var in item_data.get("variations", []):
+                    v_name = var.get("item_variation_data", {}).get("name", "")
+                    if v_name and v_name != name:
+                        catalog_map[f"{name} - {v_name}".lower()] = cat_name
+        cursor = result.body.get("cursor")
+        if not cursor:
+            break
+    
+    print(f"Category map: {len(catalog_map)} items from {len(cat_names)} categories")
+    return catalog_map
+
+
+def _lookup_category(display_name, item_name, catalog_map):
+    """Look up category from catalog map.
+    Tries display_name first (e.g. 'Coffee - Long Black'), then base name.
+    Returns category name or empty string.
+    """
+    return (
+        catalog_map.get(display_name.strip().lower()) or
+        catalog_map.get(item_name.strip().lower()) or
+        ""
+    )
+
+
+# ============================================
 # Sync Transactions (Orders API)
 # ============================================
 
 def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None) -> pd.DataFrame:
     """
-    Fetch recent transactions from Square Orders API.
+    Fetch recent transactions from Square Orders API with proper category mapping.
 
     Args:
         hours_back: How many hours of data to fetch (default: 2 for hourly cron with overlap)
@@ -102,6 +178,13 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
     """
     client = get_square_client()
     location_id = get_location_id()
+
+    # Build catalog map for category enrichment
+    try:
+        catalog_map = build_catalog_map()
+    except Exception as e:
+        print(f"Warning: Could not build catalog map: {e}")
+        catalog_map = {}
 
     now = datetime.now(timezone.utc)
     if start_from is not None:
@@ -146,7 +229,7 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
 
         if result.is_error():
             errors = result.errors
-            print(f"❌ Square Orders API error: {errors}")
+            print(f"Square Orders API error: {errors}")
             break
 
         orders = result.body.get("orders", [])
@@ -156,8 +239,11 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
         if not cursor:
             break
 
-    # Convert orders to transaction rows (matching your CSV format)
+    # Convert orders to transaction rows with proper category mapping
     rows = []
+    matched = 0
+    unmatched = 0
+    
     for order in all_orders:
         order_id = order.get("id", "")
         created_at = order.get("created_at", "")
@@ -178,7 +264,6 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
         for item in line_items:
             item_name = item.get("name", "")
             qty = float(item.get("quantity", "0"))
-            category = item.get("catalog_object_id", "")  # We'll map this later
 
             # Amounts are in cents (smallest currency unit)
             base_price = int(item.get("base_price_money", {}).get("amount", 0)) / 100
@@ -201,6 +286,13 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
             else:
                 display_name = item_name
 
+            # Category lookup from catalog
+            category = _lookup_category(display_name, item_name, catalog_map)
+            if category:
+                matched += 1
+            else:
+                unmatched += 1
+
             # Parse datetime
             try:
                 dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
@@ -217,7 +309,7 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
 
             rows.append({
                 "Datetime": datetime_str,
-                "Category": "",       # Will be enriched from catalog
+                "Category": category,
                 "Item": display_name,
                 "Qty": qty,
                 "Net Sales": round(net_sales, 2),
@@ -235,7 +327,9 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
             })
 
     df = pd.DataFrame(rows)
-    print(f"✅ Fetched {len(df)} transaction line items from Square ({hours_back}h window)")
+    total = matched + unmatched
+    pct = (matched / total * 100) if total else 0
+    print(f"Fetched {len(df)} transactions. Categories: {matched}/{total} matched ({pct:.1f}%)")
     return df
 
 
@@ -274,16 +368,35 @@ def sync_inventory() -> pd.DataFrame:
         if not cursor:
             break
 
-    # --- Step 2: Build item → variation mapping ---
+    # --- Step 2: Build item -> variation mapping ---
     variation_ids = []
-    catalog_map = {}  # variation_id → {product_name, sku, category, price, ...}
+    inv_catalog_map = {}  # variation_id -> {product_name, sku, category, price, ...}
+
+    # First, get all CATEGORY names for resolving reporting_category
+    cat_names = {}
+    cursor = None
+    while True:
+        result = client.catalog.list_catalog(cursor=cursor, types="CATEGORY")
+        if result.is_error():
+            break
+        for obj in result.body.get("objects", []):
+            cat_names[obj["id"]] = obj.get("category_data", {}).get("name", "")
+        cursor = result.body.get("cursor")
+        if not cursor:
+            break
 
     for item in all_items:
         item_data = item.get("item_data", {})
         product_name = item_data.get("name", "")
-        category_id = item_data.get("category_id", "")
         tax_ids = item_data.get("tax_ids", [])
         has_gst = len(tax_ids) > 0  # Simplified GST detection
+
+        # Resolve reporting_category
+        reporting = item_data.get("reporting_category")
+        if reporting and isinstance(reporting, dict):
+            cat_name = cat_names.get(reporting.get("id", ""), "")
+        else:
+            cat_name = ""
 
         for variation in item_data.get("variations", []):
             var_id = variation.get("id", "")
@@ -301,11 +414,11 @@ def sync_inventory() -> pd.DataFrame:
                 cost_money = cost_data.get("price_money", {})
                 unit_cost = int(cost_money.get("amount", 0)) / 100
 
-            catalog_map[var_id] = {
+            inv_catalog_map[var_id] = {
                 "product_id": item.get("id", ""),
                 "product_name": product_name,
                 "sku": sku,
-                "categories": "",  # Will resolve category names below
+                "categories": cat_name,
                 "price": price,
                 "tax_gst": "Y" if has_gst else "N",
                 "default_unit_cost": unit_cost,
@@ -313,33 +426,7 @@ def sync_inventory() -> pd.DataFrame:
             }
             variation_ids.append(var_id)
 
-    # --- Step 3: Resolve category names ---
-    category_ids = set()
-    for item in all_items:
-        cat_id = item.get("item_data", {}).get("category_id")
-        if cat_id:
-            category_ids.add(cat_id)
-
-    category_names = {}
-    if category_ids:
-        cat_result = client.catalog.batch_retrieve_catalog_objects(
-            body={"object_ids": list(category_ids)}
-        )
-        if cat_result.is_success():
-            for obj in cat_result.body.get("objects", []):
-                cat_data = obj.get("category_data", {})
-                category_names[obj["id"]] = cat_data.get("name", "")
-
-    # Map category names back to items
-    for item in all_items:
-        cat_id = item.get("item_data", {}).get("category_id")
-        cat_name = category_names.get(cat_id, "")
-        for variation in item.get("item_data", {}).get("variations", []):
-            var_id = variation.get("id", "")
-            if var_id in catalog_map:
-                catalog_map[var_id]["categories"] = cat_name
-
-    # --- Step 4: Get inventory counts ---
+    # --- Step 3: Get inventory counts ---
     counts_map = {}  # variation_id → quantity
 
     if variation_ids:
@@ -364,7 +451,7 @@ def sync_inventory() -> pd.DataFrame:
     today = datetime.now().strftime("%Y-%m-%d")
     rows = []
 
-    for var_id, info in catalog_map.items():
+    for var_id, info in inv_catalog_map.items():
         qty = counts_map.get(var_id, 0)
         rows.append({
             "Product ID": info["product_id"],
@@ -447,37 +534,23 @@ def sync_customers() -> pd.DataFrame:
 def enrich_transaction_categories(tx_df: pd.DataFrame) -> pd.DataFrame:
     """
     Enrich transactions with category names from the catalog.
-    Square Orders API doesn't always include category names directly,
-    so we look them up from the catalog.
+    Safety net — categories should already be set during sync_transactions.
     """
     if tx_df.empty:
         return tx_df
 
     try:
-        inv_df = sync_inventory()
-        if inv_df.empty:
-            return tx_df
-
-        # Build item → category mapping
-        item_to_cat = dict(
-            zip(
-                inv_df["Product Name"].str.lower(),
-                inv_df["Categories"],
-            )
-        )
-
+        catalog_map = build_catalog_map()
+        
         # Fill in missing categories
         mask = tx_df["Category"].isna() | (tx_df["Category"] == "")
         if mask.any():
-            tx_df.loc[mask, "Category"] = (
-                tx_df.loc[mask, "Item"]
-                .str.lower()
-                .map(item_to_cat)
-                .fillna("")
+            tx_df.loc[mask, "Category"] = tx_df.loc[mask, "Item"].apply(
+                lambda item: _lookup_category(str(item), str(item), catalog_map)
             )
 
     except Exception as e:
-        print(f"⚠️ Category enrichment failed: {e}")
+        print(f"Warning: Category enrichment failed: {e}")
 
     return tx_df
 

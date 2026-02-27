@@ -18,6 +18,10 @@ import urllib.error
 from pathlib import Path
 from datetime import datetime
 
+# Fix Windows console encoding
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+
 import pandas as pd
 import numpy as np
 

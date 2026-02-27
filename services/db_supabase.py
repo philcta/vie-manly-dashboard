@@ -12,6 +12,7 @@ import os
 import json
 import urllib.request
 import urllib.error
+from datetime import datetime, timedelta
 import streamlit as st
 import pandas as pd
 from contextlib import contextmanager
@@ -210,16 +211,18 @@ def _rename_to_db(df: pd.DataFrame) -> pd.DataFrame:
 # (These replace the SQLite-based load functions)
 # ============================================
 
-def _paginated_select(table, filters=None, order=None):
-    """Fetch all rows from a table using pagination."""
+def _paginated_select(table, columns="*", filters=None, order=None):
+    """Fetch all rows from a table using pagination.
+    Supabase free tier limits responses to 1000 rows max."""
     client = get_supabase_client()
     all_data = []
-    page_size = 1000
+    page_size = 1000  # Supabase free-tier max per request
     offset = 0
 
     while True:
         result = client.table_select(
             table,
+            columns=columns,
             filters=filters,
             order=order,
             limit=page_size,
@@ -253,23 +256,29 @@ def get_latest_transaction_date() -> str | None:
 
 def load_transactions(days=365, time_from=None, time_to=None) -> pd.DataFrame:
     """Load transactions from Supabase, returning DataFrame with original column names."""
+    # Only fetch columns the dashboard actually uses
+    tx_columns = "datetime,category,item,qty,net_sales,gross_sales,discounts,customer_id,transaction_id,tax,card_brand,pan_suffix,date,time,time_zone,modifiers_applied"
+
     filters = []
     if time_from:
         filters.append(f"datetime=gte.{time_from}")
+    elif days:
+        # Default: only load last N days to avoid pulling 300K+ rows
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        filters.append(f"datetime=gte.{cutoff}")
     if time_to:
         filters.append(f"datetime=lte.{time_to}")
 
-    all_data = _paginated_select("transactions", filters=filters or None)
+    all_data = _paginated_select(
+        "transactions",
+        columns=tx_columns,
+        filters=filters or None,
+    )
 
     if not all_data:
         return pd.DataFrame()
 
     df = pd.DataFrame(all_data)
-
-    # Remove Supabase internal columns
-    for col in ["id", "created_at"]:
-        if col in df.columns:
-            df = df.drop(columns=[col])
 
     # Rename to display names (what the charts expect)
     df = _rename_to_display(df)
@@ -283,17 +292,13 @@ def load_transactions(days=365, time_from=None, time_to=None) -> pd.DataFrame:
 
 def load_inventory() -> pd.DataFrame:
     """Load inventory from Supabase."""
-    all_data = _paginated_select("inventory")
+    inv_columns = "product_id,product_name,sku,categories,price,tax_gst_10,current_quantity,default_unit_cost,unit,source_date,stock_on_hand"
+    all_data = _paginated_select("inventory", columns=inv_columns)
 
     if not all_data:
         return pd.DataFrame()
 
     df = pd.DataFrame(all_data)
-
-    for col in ["id", "created_at"]:
-        if col in df.columns:
-            df = df.drop(columns=[col])
-
     df = _rename_to_display(df)
     return df
 
