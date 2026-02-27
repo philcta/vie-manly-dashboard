@@ -715,12 +715,18 @@ def show_sales_report(tx: pd.DataFrame, inv: pd.DataFrame):
 
         # 获取当天的数据
         sub = data[data["Category"].isin(cats)].copy()
+        if not sub.empty:
+            sub["Category"] = sub["Category"].astype(str)
 
         # 合并所有分类，确保即使没有销售数据的分类也包含在内
-        summary = all_cats_df.merge(sub.groupby("Category", as_index=False).agg(
+        grouped_sub = sub.groupby("Category", as_index=False).agg(
             items_sold=("qty", "sum"),
             daily_sales=("final_sales", "sum")
-        ), on="Category", how="left")
+        )
+        if not grouped_sub.empty:
+            grouped_sub["Category"] = grouped_sub["Category"].astype(str)
+
+        summary = all_cats_df.merge(grouped_sub, on="Category", how="left")
 
         # 填充缺失值
         summary["items_sold"] = summary["items_sold"].fillna(0)
@@ -752,10 +758,15 @@ def show_sales_report(tx: pd.DataFrame, inv: pd.DataFrame):
 
             if not prev_data_fixed.empty:
                 # 确保只获取指定分类的数据
-                prev_data_filtered = prev_data_fixed[prev_data_fixed["Category"].isin(cats)]
+                prev_data_filtered = prev_data_fixed[prev_data_fixed["Category"].isin(cats)].copy()
+                if not prev_data_filtered.empty:
+                    prev_data_filtered["Category"] = prev_data_filtered["Category"].astype(str)
+
                 prev_summary = prev_data_filtered.groupby("Category", as_index=False).agg(
                     prior_daily_sales=("final_sales", "sum")  # 使用修复后的销售额
                 )
+                if not prev_summary.empty:
+                    prev_summary["Category"] = prev_summary["Category"].astype(str)
 
                 # 合并前一天数据，确保所有分类都包含
                 summary = summary.merge(prev_summary, on="Category", how="left")
