@@ -188,6 +188,15 @@ COLUMN_MAP_TO_DISPLAY = {
     "creation_date": "Creation Date",
     "customer_note": "Customer Note",
     "reference_id": "Reference ID",
+    "birthday": "Birthday",
+    "company_name": "Company Name",
+    "address_line_1": "Address Line 1",
+    "locality": "Locality",
+    "postal_code": "Postal Code",
+    "creation_source": "Creation Source",
+    "group_ids": "Group IDs",
+    "segment_ids": "Segment IDs",
+    "updated_at": "Updated At",
 }
 
 # Reverse map: DataFrame (original) → Supabase (snake_case)

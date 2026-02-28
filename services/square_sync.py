@@ -479,9 +479,10 @@ def sync_inventory() -> pd.DataFrame:
 def sync_customers() -> pd.DataFrame:
     """
     Fetch all customers from Square Customers API.
+    Pulls all available fields for SMS marketing and analytics.
 
     Returns:
-        DataFrame with member rows matching the dashboard's expected format
+        DataFrame with member rows
     """
     client = get_square_client()
 
@@ -511,6 +512,7 @@ def sync_customers() -> pd.DataFrame:
 
     rows = []
     for customer in all_customers:
+        address = customer.get("address", {}) or {}
         rows.append({
             "Square Customer ID": customer.get("id", ""),
             "First Name": customer.get("given_name", ""),
@@ -520,10 +522,20 @@ def sync_customers() -> pd.DataFrame:
             "Creation Date": customer.get("created_at", ""),
             "Customer Note": customer.get("note", ""),
             "Reference ID": customer.get("reference_id", ""),
+            # New fields for SMS marketing & analytics
+            "Birthday": customer.get("birthday", ""),
+            "Company Name": customer.get("company_name", ""),
+            "Address Line 1": address.get("address_line_1", ""),
+            "Locality": address.get("locality", ""),
+            "Postal Code": address.get("postal_code", ""),
+            "Creation Source": customer.get("creation_source", ""),
+            "Group IDs": ",".join(customer.get("group_ids", []) or []),
+            "Segment IDs": ",".join(customer.get("segment_ids", []) or []),
+            "Updated At": customer.get("updated_at", ""),
         })
 
     df = pd.DataFrame(rows)
-    print(f"✅ Fetched {len(df)} customers from Square")
+    print(f"✅ Fetched {len(df)} customers from Square (with extended fields)")
     return df
 
 
@@ -630,6 +642,75 @@ def _update_daily_summaries(tx_df: pd.DataFrame):
     print(f"✅ Updated daily_item_summary: {total_upserted} rows for {len(dates)} date(s)")
 
 
+def _update_daily_store_stats(tx_df: pd.DataFrame):
+    """Recalculate daily_store_stats for affected dates (member vs non-member split).
+    
+    Rule: any transaction with a Customer ID = member, without = non-member.
+    """
+    from services.db_supabase import get_supabase_client, load_transactions_for_date
+    
+    if tx_df.empty:
+        return
+    
+    if "Date" not in tx_df.columns:
+        return
+    
+    dates = tx_df["Date"].dropna().unique().tolist()
+    if not dates:
+        return
+    
+    client = get_supabase_client()
+    total_upserted = 0
+    
+    for date_str in dates:
+        day_tx = load_transactions_for_date(date_str)
+        if day_tx.empty:
+            continue
+        
+        # Member = has Customer ID
+        has_cid = day_tx["Customer ID"].notna() & (day_tx["Customer ID"].astype(str).str.strip() != "")
+        member_tx = day_tx[has_cid]
+        nonmember_tx = day_tx[~has_cid]
+        
+        total_transactions = day_tx["Transaction ID"].nunique() if "Transaction ID" in day_tx.columns else len(day_tx)
+        member_transactions = member_tx["Transaction ID"].nunique() if "Transaction ID" in member_tx.columns and not member_tx.empty else 0
+        nonmember_transactions = nonmember_tx["Transaction ID"].nunique() if "Transaction ID" in nonmember_tx.columns and not nonmember_tx.empty else 0
+        
+        total_sales = pd.to_numeric(day_tx["Net Sales"], errors="coerce").sum()
+        member_sales = pd.to_numeric(member_tx["Net Sales"], errors="coerce").sum() if not member_tx.empty else 0
+        nonmember_sales = pd.to_numeric(nonmember_tx["Net Sales"], errors="coerce").sum() if not nonmember_tx.empty else 0
+        
+        total_items = pd.to_numeric(day_tx["Qty"], errors="coerce").sum()
+        member_items = pd.to_numeric(member_tx["Qty"], errors="coerce").sum() if not member_tx.empty else 0
+        nonmember_items = pd.to_numeric(nonmember_tx["Qty"], errors="coerce").sum() if not nonmember_tx.empty else 0
+        
+        member_unique = member_tx["Customer ID"].nunique() if not member_tx.empty else 0
+        total_unique = day_tx[has_cid]["Customer ID"].nunique() if has_cid.any() else 0
+        
+        record = {
+            "date": date_str,
+            "total_transactions": int(total_transactions),
+            "total_net_sales": round(float(total_sales), 2),
+            "total_items": int(total_items),
+            "total_unique_customers": int(total_unique),
+            "member_transactions": int(member_transactions),
+            "member_net_sales": round(float(member_sales), 2),
+            "member_items": int(member_items),
+            "member_unique_customers": int(member_unique),
+            "non_member_transactions": int(nonmember_transactions),
+            "non_member_net_sales": round(float(nonmember_sales), 2),
+            "non_member_items": int(nonmember_items),
+            "member_tx_ratio": round(member_transactions / total_transactions, 4) if total_transactions > 0 else 0,
+            "member_sales_ratio": round(float(member_sales) / float(total_sales), 4) if total_sales > 0 else 0,
+            "member_items_ratio": round(float(member_items) / float(total_items), 4) if total_items > 0 else 0,
+        }
+        
+        client.table_insert("daily_store_stats", [record], on_conflict="date")
+        total_upserted += 1
+    
+    print(f"✅ Updated daily_store_stats: {total_upserted} row(s) for {len(dates)} date(s)")
+
+
 # ============================================
 # Full Sync Orchestrator
 # ============================================
@@ -686,6 +767,12 @@ def run_full_sync(hours_back: int = 2) -> dict:
                 _update_daily_summaries(tx_df)
             except Exception as e:
                 print(f"⚠️ Daily summary update failed: {e}")
+            
+            # Update daily_store_stats (member vs non-member splits)
+            try:
+                _update_daily_store_stats(tx_df)
+            except Exception as e:
+                print(f"⚠️ Daily store stats update failed: {e}")
     except Exception as e:
         results["errors"].append(f"Transactions: {e}")
         print(f"❌ Transaction sync failed: {e}")
