@@ -290,10 +290,25 @@ def load_transactions(days=365, time_from=None, time_to=None) -> pd.DataFrame:
     return df
 
 
-def load_inventory() -> pd.DataFrame:
-    """Load inventory from Supabase."""
+def load_inventory(source_date=None) -> pd.DataFrame:
+    """Load inventory from Supabase.
+    
+    Args:
+        source_date: If provided, load inventory for this specific date (YYYY-MM-DD).
+                     If None, loads only the most recent snapshot.
+    """
     inv_columns = "product_id,product_name,sku,categories,price,tax_gst_10,current_quantity,default_unit_cost,unit,source_date,stock_on_hand"
-    all_data = _paginated_select("inventory", columns=inv_columns)
+    
+    filters = []
+    if source_date:
+        filters.append(f"source_date=eq.{source_date}")
+    else:
+        # Only load the latest date to avoid pulling 551K+ rows
+        latest_date = _get_latest_inventory_date()
+        if latest_date:
+            filters.append(f"source_date=eq.{latest_date}")
+    
+    all_data = _paginated_select("inventory", columns=inv_columns, filters=filters or None)
 
     if not all_data:
         return pd.DataFrame()
@@ -301,6 +316,53 @@ def load_inventory() -> pd.DataFrame:
     df = pd.DataFrame(all_data)
     df = _rename_to_display(df)
     return df
+
+
+def _get_latest_inventory_date() -> str | None:
+    """Get the most recent source_date from inventory table."""
+    client = get_supabase_client()
+    result = client.table_select(
+        "inventory",
+        columns="source_date",
+        order="source_date.desc",
+        limit=1,
+    )
+    rows = result.get("data", [])
+    if rows and rows[0].get("source_date"):
+        return rows[0]["source_date"]
+    return None
+
+
+def load_inventory_dates() -> list:
+    """Get list of all available inventory snapshot dates (for date picker).
+    Uses an iterative approach to find distinct dates without loading all rows.
+    Returns list of date strings sorted descending (most recent first)."""
+    client = get_supabase_client()
+    dates = []
+    
+    # Start from the most recent date and walk backwards
+    current_filter = None
+    for _ in range(200):  # Safety limit (max 200 unique dates)
+        filters = ["source_date=not.is.null"]
+        if current_filter:
+            filters.append(f"source_date=lt.{current_filter}")
+        
+        result = client.table_select(
+            "inventory",
+            columns="source_date",
+            filters=filters,
+            order="source_date.desc",
+            limit=1,
+        )
+        rows = result.get("data", [])
+        if not rows or not rows[0].get("source_date"):
+            break
+        
+        d = rows[0]["source_date"]
+        dates.append(d)
+        current_filter = d  # Next iteration: find dates before this one
+    
+    return dates  # Already sorted descending
 
 
 def load_members() -> pd.DataFrame:
@@ -516,6 +578,7 @@ __all__ = [
     'get_supabase_client',
     'load_transactions',
     'load_inventory',
+    'load_inventory_dates',
     'load_members',
     'load_all',
     'upsert_transactions',

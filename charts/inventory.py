@@ -8,6 +8,7 @@ from services.analytics import (
     sku_consumption_timeseries,
 )
 from services.simulator import simulate_consumption, simulate_consumption_timeseries
+from services.db_supabase import load_inventory, load_inventory_dates
 
 
 def detect_store_current_qty_col(df_inv: pd.DataFrame) -> Optional[str]:
@@ -293,13 +294,18 @@ def show_inventory(tx, inventory: pd.DataFrame):
     col_date, _, _, _ = st.columns([1, 1, 1.8, 3.5])
 
     with col_date:
-        # 获取可用的日期（从库存数据中提取）
-        if "source_date" in inv.columns:
-            available_dates = sorted(pd.to_datetime(inv["source_date"]).dt.date.unique(), reverse=True)
-        elif "date" in inv.columns:
-            available_dates = sorted(pd.to_datetime(inv["date"]).dt.date.unique(), reverse=True)
-        else:
-            available_dates = []
+        # Get available dates from Supabase (lightweight query)
+        try:
+            all_date_strings = load_inventory_dates()
+            available_dates = [pd.to_datetime(d).date() for d in all_date_strings]
+        except Exception:
+            # Fallback: use dates from the already-loaded inventory
+            if "source_date" in inv.columns:
+                available_dates = sorted(pd.to_datetime(inv["source_date"]).dt.date.unique(), reverse=True)
+            elif "date" in inv.columns:
+                available_dates = sorted(pd.to_datetime(inv["date"]).dt.date.unique(), reverse=True)
+            else:
+                available_dates = []
 
         # 将日期格式改为欧洲格式显示
         available_dates_formatted = [date.strftime('%d/%m/%Y') for date in available_dates]
@@ -332,16 +338,12 @@ def show_inventory(tx, inventory: pd.DataFrame):
     t2 = None
 
     # ---- Inventory Summary Table ----
-    # 获取选定日期的库存数据
-    if "source_date" in inv.columns or "date" in inv.columns:
-        date_col = "source_date" if "source_date" in inv.columns else "date"
-        inv_with_date = inv.copy()
-        inv_with_date[date_col] = pd.to_datetime(inv_with_date[date_col], errors="coerce")
-        # 筛选选定日期的数据
-        filtered_inv = inv_with_date[inv_with_date[date_col].dt.date == selected_date]
-        summary_data = calculate_inventory_summary(filtered_inv)
-    else:
-        summary_data = calculate_inventory_summary(inv)
+    # Load the specific date's inventory data from Supabase
+    selected_date_str = selected_date.strftime('%Y-%m-%d')
+    filtered_inv = load_inventory(source_date=selected_date_str)
+    if filtered_inv.empty:
+        filtered_inv = inv.copy()  # Fallback to whatever was passed in
+    summary_data = calculate_inventory_summary(filtered_inv)
 
     # 显示选定日期 - 参考 high_level 的格式
     st.markdown(
