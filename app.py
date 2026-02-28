@@ -305,4 +305,9 @@ elif section == "Inventory":
 elif section == "product mix":
     show_product_mix_only(tx, inv)
 elif section == "Customers insights":
-    show_customer_segmentation(tx, mem)
+    # Customer insights needs raw transactions (Customer ID per row)
+    # Lazy-load only when this tab is selected
+    from services.db_supabase import load_transactions
+    with st.spinner("Loading customer transaction data..."):
+        tx_raw = load_transactions(days=365)
+    show_customer_segmentation(tx_raw, mem)

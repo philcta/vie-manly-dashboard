@@ -556,6 +556,81 @@ def enrich_transaction_categories(tx_df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ============================================
+# Daily Summary Maintenance
+# ============================================
+
+def _update_daily_summaries(tx_df: pd.DataFrame):
+    """Recalculate daily_item_summary for all dates touched by synced transactions.
+    
+    For each affected date, loads ALL transactions for that date from Supabase, 
+    aggregates, and upserts to ensure correctness (not just incremental).
+    """
+    from services.db_supabase import (
+        get_supabase_client,
+        load_transactions_for_date,
+    )
+    
+    if tx_df.empty:
+        return
+    
+    # Find unique dates in the synced transactions
+    if "Date" in tx_df.columns:
+        dates = tx_df["Date"].dropna().unique().tolist()
+    else:
+        return
+    
+    if not dates:
+        return
+    
+    client = get_supabase_client()
+    total_upserted = 0
+    
+    for date_str in dates:
+        # Load ALL transactions for this date (not just the synced ones)
+        day_tx = load_transactions_for_date(date_str)
+        if day_tx.empty:
+            continue
+        
+        # Aggregate by (date, category, item)
+        grouped = day_tx.groupby(["Date", "Category", "Item"], dropna=False).agg(
+            total_qty=("Qty", "sum"),
+            total_net_sales=("Net Sales", "sum"),
+            total_gross_sales=("Gross Sales", "sum"),
+            total_discounts=("Discounts", "sum"),
+            total_tax=("Tax", lambda x: pd.to_numeric(x, errors="coerce").sum()),
+            transaction_count=("Transaction ID", "nunique"),
+        ).reset_index()
+        
+        # Build records for upsert
+        records = []
+        for _, row in grouped.iterrows():
+            records.append({
+                "date": str(row["Date"]),
+                "category": str(row["Category"]) if pd.notna(row["Category"]) else "",
+                "item": str(row["Item"]) if pd.notna(row["Item"]) else "",
+                "total_qty": round(float(row["total_qty"]), 2),
+                "total_net_sales": round(float(row["total_net_sales"]), 2),
+                "total_gross_sales": round(float(row["total_gross_sales"]), 2),
+                "total_discounts": round(float(row["total_discounts"]), 2),
+                "total_tax": round(float(row["total_tax"]), 2),
+                "transaction_count": int(row["transaction_count"]),
+            })
+        
+        if records:
+            # Upsert in batches
+            for i in range(0, len(records), 500):
+                batch = records[i:i+500]
+                client.table_insert(
+                    "daily_item_summary",
+                    batch,
+                    on_conflict="date,category,item",
+                )
+            total_upserted += len(records)
+    
+    print(f"✅ Updated daily_item_summary: {total_upserted} rows for {len(dates)} date(s)")
+
+
+# ============================================
 # Full Sync Orchestrator
 # ============================================
 
@@ -605,6 +680,12 @@ def run_full_sync(hours_back: int = 2) -> dict:
             tx_df = tx_df.drop(columns=["__base", "__dup_idx"])
 
             results["transactions"] = upsert_transactions(tx_df)
+            
+            # Update daily_item_summary for affected dates
+            try:
+                _update_daily_summaries(tx_df)
+            except Exception as e:
+                print(f"⚠️ Daily summary update failed: {e}")
     except Exception as e:
         results["errors"].append(f"Transactions: {e}")
         print(f"❌ Transaction sync failed: {e}")

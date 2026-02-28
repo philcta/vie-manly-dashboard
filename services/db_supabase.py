@@ -382,9 +382,139 @@ def load_members() -> pd.DataFrame:
     return df
 
 
+# ============================================
+# Daily Summary Loading (fast path)
+# ============================================
+
+def load_daily_summaries(days=365) -> pd.DataFrame:
+    """Load pre-computed daily item summaries from Supabase.
+    
+    Returns a DataFrame shaped like transactions output so charts
+    need zero changes:
+        Date, Category, Item, Qty, Net Sales, Gross Sales, Discounts, Tax
+    
+    Args:
+        days: Number of days of history to load (default 365)
+    """
+    filters = []
+    if days:
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        filters.append(f"date=gte.{cutoff}")
+    
+    all_data = _paginated_select(
+        "daily_item_summary",
+        columns="date,category,item,total_qty,total_net_sales,total_gross_sales,total_discounts,total_tax,transaction_count",
+        filters=filters or None,
+    )
+    
+    if not all_data:
+        return pd.DataFrame()
+    
+    df = pd.DataFrame(all_data)
+    
+    # Rename to match what charts expect
+    df = df.rename(columns={
+        "date": "Date",
+        "category": "Category",
+        "item": "Item",
+        "total_qty": "Qty",
+        "total_net_sales": "Net Sales",
+        "total_gross_sales": "Gross Sales",
+        "total_discounts": "Discounts",
+        "total_tax": "Tax",
+        "transaction_count": "Transaction Count",
+    })
+    
+    # Add Datetime column (charts expect it for time filtering)
+    if "Date" in df.columns:
+        df["Datetime"] = pd.to_datetime(df["Date"], errors="coerce")
+    
+    return df
+
+
+def load_transactions_for_date(date_str: str) -> pd.DataFrame:
+    """Load raw transactions for a single date (for today's incomplete data).
+    
+    Args:
+        date_str: Date in YYYY-MM-DD format
+    """
+    tx_columns = "datetime,category,item,qty,net_sales,gross_sales,discounts,customer_id,transaction_id,tax,card_brand,pan_suffix,date,time,time_zone,modifiers_applied"
+    filters = [f"date=eq.{date_str}"]
+    
+    all_data = _paginated_select(
+        "transactions",
+        columns=tx_columns,
+        filters=filters,
+    )
+    
+    if not all_data:
+        return pd.DataFrame()
+    
+    df = pd.DataFrame(all_data)
+    df = _rename_to_display(df)
+    
+    if "Datetime" in df.columns:
+        df["Datetime"] = pd.to_datetime(df["Datetime"], errors="coerce", utc=True).dt.tz_localize(None)
+    
+    return df
+
+
+def _aggregate_to_summary(tx_df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate raw transactions into summary format (date × category × item)."""
+    if tx_df.empty:
+        return pd.DataFrame()
+    
+    grouped = tx_df.groupby(["Date", "Category", "Item"], dropna=False).agg(
+        **{
+            "Qty": ("Qty", "sum"),
+            "Net Sales": ("Net Sales", "sum"),
+            "Gross Sales": ("Gross Sales", "sum"),
+            "Discounts": ("Discounts", "sum"),
+            "Tax": ("Tax", lambda x: pd.to_numeric(x, errors="coerce").sum()),
+            "Transaction Count": ("Transaction ID", "nunique"),
+        }
+    ).reset_index()
+    
+    grouped["Datetime"] = pd.to_datetime(grouped["Date"], errors="coerce")
+    return grouped
+
+
 def load_all(time_from=None, time_to=None, days=None):
-    """Load all data — drop-in replacement for analytics.load_all()."""
-    tx = load_transactions(days=days or 365, time_from=time_from, time_to=time_to)
+    """Load all data — uses daily summaries for speed, with today's live data merged in."""
+    from zoneinfo import ZoneInfo
+    
+    use_days = days or 365
+    
+    # Try fast path: daily summaries + today's live data
+    try:
+        # 1. Load pre-computed summaries (~1.5s)
+        summaries = load_daily_summaries(days=use_days)
+        
+        if not summaries.empty:
+            # 2. Get today's date in Sydney time
+            today_syd = datetime.now(ZoneInfo("Australia/Sydney")).strftime("%Y-%m-%d")
+            
+            # 3. Remove today from summaries (will replace with live data)
+            summaries = summaries[summaries["Date"] != today_syd]
+            
+            # 4. Load today's raw transactions and aggregate
+            today_raw = load_transactions_for_date(today_syd)
+            if not today_raw.empty:
+                today_summary = _aggregate_to_summary(today_raw)
+                tx = pd.concat([summaries, today_summary], ignore_index=True)
+            else:
+                tx = summaries
+            
+            print(f"✅ Loaded {len(tx)} summary rows ({len(summaries)} historical + live today)")
+        else:
+            # Summary table might be empty — fall back to raw transactions
+            print("⚠️ No daily summaries found, falling back to raw transactions...")
+            tx = load_transactions(days=use_days, time_from=time_from, time_to=time_to)
+    except Exception as e:
+        # Summary table might not exist yet — fall back to raw transactions
+        print(f"⚠️ Daily summaries unavailable ({e}), falling back to raw transactions...")
+        tx = load_transactions(days=use_days, time_from=time_from, time_to=time_to)
+    
     inv = load_inventory()
     mem = load_members()
 
