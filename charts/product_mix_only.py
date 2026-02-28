@@ -319,7 +319,11 @@ def show_product_mix_only(tx: pd.DataFrame, inv: pd.DataFrame = None):
         st.info("Inventory table not available.")
         return
 
-    inv_key = "Item Name" if "Item Name" in inv.columns else None
+    inv_key = None
+    for col in ["Item Name", "Product Name"]:
+        if col in inv.columns:
+            inv_key = col
+            break
     tx_key = "Item" if "Item" in tx.columns else None
     if not inv_key or not tx_key:
         st.info("Cannot align items between inventory and transactions.")
