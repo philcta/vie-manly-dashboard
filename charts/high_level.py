@@ -164,35 +164,59 @@ def preload_all_data(tx_df):
     tx["Net Sales"] = pd.to_numeric(tx["Net Sales"], errors="coerce").fillna(0)
     tx["Qty"] = pd.to_numeric(tx["Qty"], errors="coerce").fillna(0)
 
-    # ── daily aggregation (replaces daily_sql) ──
-    txn_agg = tx.groupby(["date", "Transaction ID"]).agg(
-        total_net_sales=("Net Sales", "sum"),
-        total_qty=("Qty", "sum")
-    ).reset_index()
+    # Detect if this is summary data (has Transaction Count) or raw data (has Transaction ID)
+    is_summary = "Transaction Count" in tx.columns and "Transaction ID" not in tx.columns
 
-    daily = txn_agg.groupby("date").agg(
-        net_sales=("total_net_sales", "sum"),
-        transactions=("Transaction ID", "nunique"),
-        qty=("total_qty", "sum")
-    ).reset_index()
+    if is_summary:
+        # ── Summary data: already aggregated per (date, category, item) ──
+        tx["Transaction Count"] = pd.to_numeric(tx["Transaction Count"], errors="coerce").fillna(0)
+        
+        daily = tx.groupby("date").agg(
+            net_sales=("Net Sales", "sum"),
+            transactions=("Transaction Count", "sum"),
+            qty=("Qty", "sum")
+        ).reset_index()
+        daily["transactions"] = daily["transactions"].astype(int)
+        
+        tx["Category"] = tx["Category"].fillna("None").replace("", "None").str.strip()
+        tx.loc[tx["Category"] == "", "Category"] = "None"
+        
+        category = tx.groupby(["date", "Category"]).agg(
+            net_sales=("Net Sales", "sum"),
+            transactions=("Transaction Count", "sum"),
+            qty=("Qty", "sum")
+        ).reset_index()
+        category["transactions"] = category["transactions"].astype(int)
+    else:
+        # ── Raw data: group by Transaction ID to count unique transactions ──
+        txn_agg = tx.groupby(["date", "Transaction ID"]).agg(
+            total_net_sales=("Net Sales", "sum"),
+            total_qty=("Qty", "sum")
+        ).reset_index()
+
+        daily = txn_agg.groupby("date").agg(
+            net_sales=("total_net_sales", "sum"),
+            transactions=("Transaction ID", "nunique"),
+            qty=("total_qty", "sum")
+        ).reset_index()
+
+        tx["Category"] = tx["Category"].fillna("None").replace("", "None").str.strip()
+        tx.loc[tx["Category"] == "", "Category"] = "None"
+
+        cat_txn_agg = tx.groupby(["date", "Category", "Transaction ID"]).agg(
+            cat_net_sales=("Net Sales", "sum"),
+            cat_qty=("Qty", "sum")
+        ).reset_index()
+
+        category = cat_txn_agg.groupby(["date", "Category"]).agg(
+            net_sales=("cat_net_sales", "sum"),
+            transactions=("Transaction ID", "nunique"),
+            qty=("cat_qty", "sum")
+        ).reset_index()
+
     daily["avg_txn"] = daily.apply(
         lambda r: r["net_sales"] / r["transactions"] if r["transactions"] > 0 else 0, axis=1
     )
-
-    # ── category aggregation (replaces category_sql) ──
-    tx["Category"] = tx["Category"].fillna("None").replace("", "None").str.strip()
-    tx.loc[tx["Category"] == "", "Category"] = "None"
-
-    cat_txn_agg = tx.groupby(["date", "Category", "Transaction ID"]).agg(
-        cat_net_sales=("Net Sales", "sum"),
-        cat_qty=("Qty", "sum")
-    ).reset_index()
-
-    category = cat_txn_agg.groupby(["date", "Category"]).agg(
-        net_sales=("cat_net_sales", "sum"),
-        transactions=("Transaction ID", "nunique"),
-        qty=("cat_qty", "sum")
-    ).reset_index()
     category["avg_txn"] = category.apply(
         lambda r: r["net_sales"] / r["transactions"] if r["transactions"] > 0 else 0, axis=1
     )
@@ -1413,7 +1437,12 @@ def show_high_level(tx: pd.DataFrame, mem: pd.DataFrame, inv: pd.DataFrame):
             custom_dates_selected, t1, t2
         )
 
-        return df["Transaction ID"].nunique()
+        if "Transaction ID" in df.columns:
+            return df["Transaction ID"].nunique()
+        elif "Transaction Count" in df.columns:
+            return int(pd.to_numeric(df["Transaction Count"], errors="coerce").sum())
+        else:
+            return len(df)
 
     # === 计算客户数量 ===
     def calculate_customer_count(tx_df, time_range, selected_date, custom_dates_selected=False, t1=None, t2=None):
@@ -1472,9 +1501,14 @@ def show_high_level(tx: pd.DataFrame, mem: pd.DataFrame, inv: pd.DataFrame):
         bar_net_sales_raw = bar_data["net_sales"].sum()
         bar_net_sales = proper_round(bar_net_sales_raw)
 
-        # 按 Transaction ID 去重统计 bar 笔数
+        # Count bar transactions
         bar_tx_ids = tx_filtered[tx_filtered["Category"].apply(is_bar_category)]
-        bar_transactions = bar_tx_ids["Transaction ID"].nunique()
+        if "Transaction ID" in bar_tx_ids.columns:
+            bar_transactions = bar_tx_ids["Transaction ID"].nunique()
+        elif "Transaction Count" in bar_tx_ids.columns:
+            bar_transactions = int(pd.to_numeric(bar_tx_ids["Transaction Count"], errors="coerce").sum())
+        else:
+            bar_transactions = len(bar_tx_ids)
 
         bar_avg_txn = bar_net_sales_raw / bar_transactions if bar_transactions > 0 else 0
         bar_qty = bar_data["qty"].sum()
@@ -1484,16 +1518,26 @@ def show_high_level(tx: pd.DataFrame, mem: pd.DataFrame, inv: pd.DataFrame):
         retail_net_sales_raw = pd.to_numeric(retail_data["net_sales"], errors="coerce").sum()
         retail_net_sales = proper_round(retail_net_sales_raw)
 
-        # 按 Transaction ID 去重统计 retail 笔数
+        # Count retail transactions
         retail_tx_ids = tx_filtered[~tx_filtered["Category"].apply(is_bar_category)]
-        retail_transactions = retail_tx_ids["Transaction ID"].nunique()
+        if "Transaction ID" in retail_tx_ids.columns:
+            retail_transactions = retail_tx_ids["Transaction ID"].nunique()
+        elif "Transaction Count" in retail_tx_ids.columns:
+            retail_transactions = int(pd.to_numeric(retail_tx_ids["Transaction Count"], errors="coerce").sum())
+        else:
+            retail_transactions = len(retail_tx_ids)
 
         retail_avg_txn = retail_net_sales_raw / retail_transactions if retail_transactions > 0 else 0
         retail_qty = retail_data["qty"].sum()
 
         # === 关键修复：确保 total transactions 等于 bar + retail ===
         # 直接从筛选后的交易数据计算总笔数
-        total_transactions = tx_filtered["Transaction ID"].nunique()
+        if "Transaction ID" in tx_filtered.columns:
+            total_transactions = tx_filtered["Transaction ID"].nunique()
+        elif "Transaction Count" in tx_filtered.columns:
+            total_transactions = int(pd.to_numeric(tx_filtered["Transaction Count"], errors="coerce").sum())
+        else:
+            total_transactions = len(tx_filtered)
 
         # 验证：bar + retail 应该等于 total
         bar_retail_sum_transactions = bar_transactions + retail_transactions

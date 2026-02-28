@@ -107,47 +107,81 @@ def preload_all_data(tx_df):
     else:
         tx["_tax"] = 0
 
-    # ── daily aggregation ──
-    txn_agg = tx.groupby(["date", "Transaction ID"]).agg(
-        total_gross_sales=("Gross Sales", "sum"),
-        total_tax=("_tax", "sum"),
-        total_qty=("Qty", "sum")
-    ).reset_index()
+    # ── Detect summary vs raw data ──
+    is_summary = "Transaction Count" in tx.columns and "Transaction ID" not in tx.columns
 
-    daily = txn_agg.groupby("date").agg(
-        gross_sales=("total_gross_sales", "sum"),
-        total_tax=("total_tax", "sum"),
-        transactions=("Transaction ID", "nunique"),
-        qty=("total_qty", "sum")
-    ).reset_index()
-    daily["net_sales_with_tax"] = (daily["gross_sales"] - daily["total_tax"]).round(2)
-    daily["avg_txn"] = daily.apply(
-        lambda r: r["net_sales_with_tax"] / r["transactions"] if r["transactions"] > 0 else 0, axis=1
-    )
+    if is_summary:
+        tx["Transaction Count"] = pd.to_numeric(tx["Transaction Count"], errors="coerce").fillna(0)
+        
+        daily = tx.groupby("date").agg(
+            gross_sales=("Gross Sales", "sum"),
+            total_tax=("_tax", "sum"),
+            transactions=("Transaction Count", "sum"),
+            qty=("Qty", "sum")
+        ).reset_index()
+        daily["transactions"] = daily["transactions"].astype(int)
+        daily["net_sales_with_tax"] = (daily["gross_sales"] - daily["total_tax"]).round(2)
+        daily["avg_txn"] = daily.apply(
+            lambda r: r["net_sales_with_tax"] / r["transactions"] if r["transactions"] > 0 else 0, axis=1
+        )
 
-    # ── category aggregation ──
-    tx["Category"] = tx["Category"].fillna("None").replace("", "None").str.strip()
-    tx.loc[tx["Category"] == "", "Category"] = "None"
+        tx["Category"] = tx["Category"].fillna("None").replace("", "None").str.strip()
+        tx.loc[tx["Category"] == "", "Category"] = "None"
 
-    cat_txn_agg = tx.groupby(["date", "Category", "Transaction ID"]).agg(
-        cat_net_sales=("Net Sales", "sum"),
-        cat_tax=("_tax", "sum"),
-        cat_gross=("Gross Sales", "sum"),
-        cat_qty=("Qty", "sum")
-    ).reset_index()
-    cat_txn_agg["cat_total_with_tax"] = (cat_txn_agg["cat_net_sales"] + cat_txn_agg["cat_tax"]).round(2)
+        category = tx.groupby(["date", "Category"]).agg(
+            net_sales=("Net Sales", "sum"),
+            total_tax=("_tax", "sum"),
+            gross=("Gross Sales", "sum"),
+            transactions=("Transaction Count", "sum"),
+            qty=("Qty", "sum")
+        ).reset_index()
+        category["transactions"] = category["transactions"].astype(int)
+        category["net_sales_with_tax"] = (category["net_sales"] + category["total_tax"]).round(2)
+        category["avg_txn"] = category.apply(
+            lambda r: r["net_sales_with_tax"] / r["transactions"] if r["transactions"] > 0 else 0, axis=1
+        )
+    else:
+        # ── daily aggregation ──
+        txn_agg = tx.groupby(["date", "Transaction ID"]).agg(
+            total_gross_sales=("Gross Sales", "sum"),
+            total_tax=("_tax", "sum"),
+            total_qty=("Qty", "sum")
+        ).reset_index()
 
-    category = cat_txn_agg.groupby(["date", "Category"]).agg(
-        net_sales_with_tax=("cat_total_with_tax", "sum"),
-        net_sales=("cat_net_sales", "sum"),
-        total_tax=("cat_tax", "sum"),
-        transactions=("Transaction ID", "nunique"),
-        gross=("cat_gross", "sum"),
-        qty=("cat_qty", "sum")
-    ).reset_index()
-    category["avg_txn"] = category.apply(
-        lambda r: r["net_sales_with_tax"] / r["transactions"] if r["transactions"] > 0 else 0, axis=1
-    )
+        daily = txn_agg.groupby("date").agg(
+            gross_sales=("total_gross_sales", "sum"),
+            total_tax=("total_tax", "sum"),
+            transactions=("Transaction ID", "nunique"),
+            qty=("total_qty", "sum")
+        ).reset_index()
+        daily["net_sales_with_tax"] = (daily["gross_sales"] - daily["total_tax"]).round(2)
+        daily["avg_txn"] = daily.apply(
+            lambda r: r["net_sales_with_tax"] / r["transactions"] if r["transactions"] > 0 else 0, axis=1
+        )
+
+        # ── category aggregation ──
+        tx["Category"] = tx["Category"].fillna("None").replace("", "None").str.strip()
+        tx.loc[tx["Category"] == "", "Category"] = "None"
+
+        cat_txn_agg = tx.groupby(["date", "Category", "Transaction ID"]).agg(
+            cat_net_sales=("Net Sales", "sum"),
+            cat_tax=("_tax", "sum"),
+            cat_gross=("Gross Sales", "sum"),
+            cat_qty=("Qty", "sum")
+        ).reset_index()
+        cat_txn_agg["cat_total_with_tax"] = (cat_txn_agg["cat_net_sales"] + cat_txn_agg["cat_tax"]).round(2)
+
+        category = cat_txn_agg.groupby(["date", "Category"]).agg(
+            net_sales_with_tax=("cat_total_with_tax", "sum"),
+            net_sales=("cat_net_sales", "sum"),
+            total_tax=("cat_tax", "sum"),
+            transactions=("Transaction ID", "nunique"),
+            gross=("cat_gross", "sum"),
+            qty=("cat_qty", "sum")
+        ).reset_index()
+        category["avg_txn"] = category.apply(
+            lambda r: r["net_sales_with_tax"] / r["transactions"] if r["transactions"] > 0 else 0, axis=1
+        )
 
     # ── items_df ──
     items_df = tx[tx["Item"].notna()][["date", "Category", "Item", "Net Sales", "Tax", "Qty", "Gross Sales"]].copy()
