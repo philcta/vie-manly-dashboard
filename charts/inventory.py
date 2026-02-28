@@ -385,7 +385,14 @@ def show_inventory(tx, inventory: pd.DataFrame):
 
     # ✅ 确保存在 option_key 列
     if "option_key" not in low_stock.columns:
-        item_col = "Item Name" if "Item Name" in low_stock.columns else "Item"
+        # Detect the item name column (inventory uses "Product Name")
+        item_col = None
+        for col_name in ["Item Name", "Product Name", "Item"]:
+            if col_name in low_stock.columns:
+                item_col = col_name
+                break
+        if item_col is None:
+            item_col = "Item"  # fallback, will error if truly missing
         variation_col = "Variation Name" if "Variation Name" in low_stock.columns else None
         sku_col = "SKU" if "SKU" in low_stock.columns else None
 
@@ -588,20 +595,27 @@ def show_inventory(tx, inventory: pd.DataFrame):
             recent_tx["Item"] = recent_tx["Item"].astype(str).str.strip()
             # 移除 Item 列开头的星号（确保与前面处理一致）
             recent_tx["Item"] = recent_tx["Item"].str.replace(r'^\*', '', regex=True).str.strip()
-            recent_tx["Price Point Name"] = recent_tx["Price Point Name"].astype(str).str.strip()
             recent_tx["Net Sales"] = pd.to_numeric(recent_tx["Net Sales"], errors="coerce").fillna(0)
 
-            # 按 Item Name 和 Price Point Name 分组计算销售额
+            # Check if Price Point Name exists (raw data has it, summary data doesn't)
+            has_variation = "Price Point Name" in recent_tx.columns
+
+            if has_variation:
+                recent_tx["Price Point Name"] = recent_tx["Price Point Name"].astype(str).str.strip()
+                group_cols = ["Item", "Price Point Name"]
+                rename_map = {"Item": "Item Name", "Price Point Name": "Variation Name", "Net Sales": "Net Sale 4W"}
+            else:
+                group_cols = ["Item"]
+                rename_map = {"Item": "Item Name", "Net Sales": "Net Sale 4W"}
+
             item_sales_4w = (
-                recent_tx.groupby(["Item", "Price Point Name"])["Net Sales"]
+                recent_tx.groupby(group_cols)["Net Sales"]
                 .sum()
                 .reset_index()
-                .rename(columns={"Item": "Item Name", "Price Point Name": "Variation Name",
-                                 "Net Sales": "Net Sale 4W"})
+                .rename(columns=rename_map)
             )
 
             # === 新增：计算过去3个月和6个月（自然月份） ===
-
             past_3m_start = selected_date_ts - pd.Timedelta(days=90)
             past_6m_start = selected_date_ts - pd.Timedelta(days=180)
 
@@ -609,67 +623,74 @@ def show_inventory(tx, inventory: pd.DataFrame):
             tx_3m = tx[(tx["Datetime"] >= past_3m_start) & (tx["Datetime"] <= end_ts)].copy()
             tx_3m["Net Sales"] = pd.to_numeric(tx_3m["Net Sales"], errors="coerce").fillna(0)
             tx_3m["Item"] = tx_3m["Item"].astype(str).str.strip().str.replace(r'^\*', '', regex=True)
-            tx_3m["Price Point Name"] = tx_3m["Price Point Name"].astype(str).str.strip()
+
+            if has_variation:
+                tx_3m["Price Point Name"] = tx_3m["Price Point Name"].astype(str).str.strip()
+                rename_3m = {"Item": "Item Name", "Price Point Name": "Variation Name", "Net Sales": "Last 3 Months Sales"}
+            else:
+                rename_3m = {"Item": "Item Name", "Net Sales": "Last 3 Months Sales"}
 
             item_sales_3m = (
-                tx_3m.groupby(["Item", "Price Point Name"])["Net Sales"]
+                tx_3m.groupby(group_cols)["Net Sales"]
                 .sum()
                 .reset_index()
-                .rename(columns={
-                    "Item": "Item Name",
-                    "Price Point Name": "Variation Name",
-                    "Net Sales": "Last 3 Months Sales"
-                })
+                .rename(columns=rename_3m)
             )
 
             # ---- Last 6 Months ----
             tx_6m = tx[(tx["Datetime"] >= past_6m_start) & (tx["Datetime"] <= end_ts)].copy()
             tx_6m["Net Sales"] = pd.to_numeric(tx_6m["Net Sales"], errors="coerce").fillna(0)
             tx_6m["Item"] = tx_6m["Item"].astype(str).str.strip().str.replace(r'^\*', '', regex=True)
-            tx_6m["Price Point Name"] = tx_6m["Price Point Name"].astype(str).str.strip()
+
+            if has_variation:
+                tx_6m["Price Point Name"] = tx_6m["Price Point Name"].astype(str).str.strip()
+                rename_6m = {"Item": "Item Name", "Price Point Name": "Variation Name", "Net Sales": "Last 6 Months Sales"}
+            else:
+                rename_6m = {"Item": "Item Name", "Net Sales": "Last 6 Months Sales"}
 
             item_sales_6m = (
-                tx_6m.groupby(["Item", "Price Point Name"])["Net Sales"]
+                tx_6m.groupby(group_cols)["Net Sales"]
                 .sum()
                 .reset_index()
-                .rename(columns={
-                    "Item": "Item Name",
-                    "Price Point Name": "Variation Name",
-                    "Net Sales": "Last 6 Months Sales"
-                })
+                .rename(columns=rename_6m)
             )
 
             def smart_merge(df_inv, df_tx):
                 """
-                修复 6M < 3M 的根本问题：
-                1. 当 Variation Name 不一致时，优先按 Item 匹配
-                2. merge 时不覆盖已有数据（正确累加）
-                3. 允许 Variation 为 nan/空字符串/不一致
+                Merge inventory with sales data.
+                Handles both cases: with and without Variation Name.
                 """
-
                 df_inv2 = df_inv.copy()
                 df_tx2 = df_tx.copy()
 
-                # 标准化 Variation Name
-                df_inv2["Variation Name"] = df_inv2["Variation Name"].fillna("").astype(str).str.strip()
-                df_tx2["Variation Name"] = df_tx2["Variation Name"].fillna("").astype(str).str.strip()
+                if "Variation Name" in df_tx2.columns and "Variation Name" in df_inv2.columns:
+                    # 标准化 Variation Name
+                    df_inv2["Variation Name"] = df_inv2["Variation Name"].fillna("").astype(str).str.strip()
+                    df_tx2["Variation Name"] = df_tx2["Variation Name"].fillna("").astype(str).str.strip()
 
-                # 先按 (Item Name + Variation Name) 精确匹配
-                merged = df_inv2.merge(df_tx2, on=["Item Name", "Variation Name"], how="left")
+                    # 先按 (Item Name + Variation Name) 精确匹配
+                    merged = df_inv2.merge(df_tx2, on=["Item Name", "Variation Name"], how="left")
 
-                # 退回用 Item Name 仅匹配（宽松匹配）
-                fallback = df_inv2.merge(
-                    df_tx2.groupby("Item Name").sum(numeric_only=True).reset_index(),
-                    on="Item Name",
-                    how="left"
-                )
+                    # 退回用 Item Name 仅匹配（宽松匹配）
+                    fallback = df_inv2.merge(
+                        df_tx2.groupby("Item Name").sum(numeric_only=True).reset_index(),
+                        on="Item Name",
+                        how="left"
+                    )
 
-                # combine_first：已有的非空值优先，不被错误覆盖
-                for col in df_tx2.columns:
-                    if col not in ["Item Name", "Variation Name"]:
-                        merged[col] = merged[col].combine_first(fallback[col])
+                    # combine_first：已有的非空值优先
+                    for col in df_tx2.columns:
+                        if col not in ["Item Name", "Variation Name"]:
+                            merged[col] = merged[col].combine_first(fallback[col])
 
-                return merged
+                    return merged
+                else:
+                    # No Variation Name — just merge on Item Name
+                    # Ensure Item Name column exists in inv
+                    inv_merge_col = "Item Name" if "Item Name" in df_inv2.columns else "Product Name"
+                    if inv_merge_col != "Item Name" and inv_merge_col in df_inv2.columns:
+                        df_inv2 = df_inv2.rename(columns={inv_merge_col: "Item Name"})
+                    return df_inv2.merge(df_tx2, on="Item Name", how="left")
 
             df_low_display = smart_merge(df_low_display, item_sales_4w)
             df_low_display = smart_merge(df_low_display, item_sales_3m)
