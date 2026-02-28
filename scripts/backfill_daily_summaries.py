@@ -89,7 +89,8 @@ def main():
         s["total_net_sales"] += float(r.get("net_sales", 0) or 0)
         s["total_gross_sales"] += float(r.get("gross_sales", 0) or 0)
         s["total_discounts"] += float(r.get("discounts", 0) or 0)
-        s["total_tax"] += float(r.get("tax", 0) or 0)
+        tax_raw = str(r.get("tax", "0") or "0").replace("$", "").replace(",", "").strip()
+        s["total_tax"] += float(tax_raw) if tax_raw else 0
         tid = r.get("transaction_id", "")
         if tid:
             s["transactions"].add(tid)
