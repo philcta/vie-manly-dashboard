@@ -434,12 +434,14 @@ def show_customer_segmentation(tx, members):
         df_filtered["Net Sales"] = pd.to_numeric(df_filtered["Net Sales"], errors="coerce")
 
         # 按 Transaction ID 聚合，计算每笔交易的总金额
-        transaction_summary = df_filtered.groupby("Transaction ID").agg({
-            "Net Sales": "sum",
-            "is_member": "first",  # 取第一个 is_member 值
-            "Customer ID": "first",
-            "Customer Name": "first"
-        }).reset_index()
+        agg_dict = {"Net Sales": "sum"}
+        if "is_member" in df_filtered.columns:
+            agg_dict["is_member"] = "first"
+        if "Customer ID" in df_filtered.columns:
+            agg_dict["Customer ID"] = "first"
+        if "Customer Name" in df_filtered.columns:
+            agg_dict["Customer Name"] = "first"
+        transaction_summary = df_filtered.groupby("Transaction ID").agg(agg_dict).reset_index()
 
         df_unique = transaction_summary
     else:

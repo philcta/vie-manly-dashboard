@@ -310,4 +310,29 @@ elif section == "Customers insights":
     from services.db_supabase import load_transactions
     with st.spinner("Loading customer transaction data..."):
         tx_raw = load_transactions(days=365)
+        # Enrich with Customer Name from members table (transactions only have Customer ID)
+        if not tx_raw.empty and not mem.empty and "Customer ID" in tx_raw.columns:
+            # Build name lookup from members: Square Customer ID → First Name + Last Name
+            mem_names = mem.copy()
+            name_col = None
+            if "First Name" in mem_names.columns and "Last Name" in mem_names.columns:
+                mem_names["_name"] = (
+                    mem_names["First Name"].fillna("").astype(str).str.strip()
+                    + " "
+                    + mem_names["Last Name"].fillna("").astype(str).str.strip()
+                ).str.strip()
+                name_col = "_name"
+            elif "First Name" in mem_names.columns:
+                name_col = "First Name"
+            
+            id_col = "Square Customer ID" if "Square Customer ID" in mem_names.columns else None
+            
+            if name_col and id_col:
+                name_map = (
+                    mem_names[[id_col, name_col]]
+                    .dropna(subset=[id_col])
+                    .drop_duplicates(id_col)
+                    .rename(columns={id_col: "Customer ID", name_col: "Customer Name"})
+                )
+                tx_raw = tx_raw.merge(name_map, on="Customer ID", how="left")
     show_customer_segmentation(tx_raw, mem)
