@@ -45,9 +45,15 @@ CREATE TABLE IF NOT EXISTS member_daily_stats (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-ALTER TABLE member_daily_stats
-ADD CONSTRAINT member_daily_stats_unique
-UNIQUE (square_customer_id, date);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'member_daily_stats_unique'
+    ) THEN
+        ALTER TABLE member_daily_stats
+        ADD CONSTRAINT member_daily_stats_unique UNIQUE (square_customer_id, date);
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_member_daily_stats_date
 ON member_daily_stats (date);
@@ -56,6 +62,7 @@ CREATE INDEX IF NOT EXISTS idx_member_daily_stats_customer
 ON member_daily_stats (square_customer_id);
 
 ALTER TABLE member_daily_stats ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all" ON member_daily_stats;
 CREATE POLICY "service_role_all" ON member_daily_stats
     FOR ALL USING (true) WITH CHECK (true);
 
@@ -98,5 +105,6 @@ CREATE INDEX IF NOT EXISTS idx_daily_store_stats_date
 ON daily_store_stats (date);
 
 ALTER TABLE daily_store_stats ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all" ON daily_store_stats;
 CREATE POLICY "service_role_all" ON daily_store_stats
     FOR ALL USING (true) WITH CHECK (true);
