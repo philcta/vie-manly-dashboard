@@ -22,7 +22,7 @@ import pandas as pd
 import streamlit as st
 
 try:
-    from square.client import Client as SquareClient
+    from square import Square as SquareClient
 except ImportError:
     print("⚠️ squareup package not installed. Run: pip install squareup")
     SquareClient = None
@@ -57,15 +57,20 @@ def _get_square_config():
 
 
 def get_square_client() -> "SquareClient":
-    """Create a Square API client."""
+    """Create a Square API client (v44+ SDK)."""
     if SquareClient is None:
         raise ImportError("squareup package not installed. Run: pip install squareup")
 
     config = _get_square_config()
-    return SquareClient(
-        access_token=config["access_token"],
-        environment=config["environment"],
-    )
+    # v44 SDK uses Square(token=...) and environment is set via base_url
+    env = config["environment"]
+    if env == "production":
+        return SquareClient(token=config["access_token"])
+    else:
+        return SquareClient(
+            token=config["access_token"],
+            environment=env,
+        )
 
 
 def get_location_id() -> str:
@@ -75,14 +80,13 @@ def get_location_id() -> str:
     if loc_id:
         return loc_id
 
-    # Auto-discover: get the first active location
+    # Auto-discover: get the first active location (v44 SDK)
     client = get_square_client()
-    result = client.locations.list_locations()
-    if result.is_success():
-        locations = result.body.get("locations", [])
-        active = [l for l in locations if l.get("status") == "ACTIVE"]
+    result = client.locations.list()
+    if result.locations:
+        active = [l for l in result.locations if l.status == "ACTIVE"]
         if active:
-            return active[0]["id"]
+            return active[0].id
     raise ValueError("No Square location found. Set SQUARE_LOCATION_ID in .env")
 
 
@@ -102,48 +106,35 @@ def build_catalog_map():
     """
     client = get_square_client()
     
-    # Step 1: Get all CATEGORY objects -> id:name map
+    # Step 1: Get all CATEGORY objects -> id:name map (SyncPager auto-paginates)
     cat_names = {}
-    cursor = None
-    while True:
-        result = client.catalog.list_catalog(cursor=cursor, types="CATEGORY")
-        if result.is_error():
-            break
-        for obj in result.body.get("objects", []):
-            cat_names[obj["id"]] = obj.get("category_data", {}).get("name", "")
-        cursor = result.body.get("cursor")
-        if not cursor:
-            break
+    for obj in client.catalog.list(types="CATEGORY"):
+        cat_names[obj.id] = getattr(obj.category_data, "name", "") if obj.category_data else ""
     
     # Step 2: Build item name -> category map using reporting_category
     catalog_map = {}
-    cursor = None
-    while True:
-        result = client.catalog.list_catalog(cursor=cursor, types="ITEM")
-        if result.is_error():
-            break
-        for obj in result.body.get("objects", []):
-            item_data = obj.get("item_data", {})
-            name = item_data.get("name", "")
-            if not name:
-                continue
-            
-            # Use reporting_category (always populated, single value)
-            reporting = item_data.get("reporting_category")
-            if reporting and isinstance(reporting, dict):
-                cat_name = cat_names.get(reporting.get("id", ""), "")
-            else:
-                cat_name = ""
-            
-            if cat_name:
-                catalog_map[name.lower()] = cat_name
-                for var in item_data.get("variations", []):
-                    v_name = var.get("item_variation_data", {}).get("name", "")
-                    if v_name and v_name != name:
-                        catalog_map[f"{name} - {v_name}".lower()] = cat_name
-        cursor = result.body.get("cursor")
-        if not cursor:
-            break
+    for obj in client.catalog.list(types="ITEM"):
+        item_data = obj.item_data
+        if not item_data:
+            continue
+        name = item_data.name or ""
+        if not name:
+            continue
+        
+        # Use reporting_category (always populated, single value)
+        reporting = item_data.reporting_category
+        if reporting:
+            cat_name = cat_names.get(reporting.id, "")
+        else:
+            cat_name = ""
+        
+        if cat_name:
+            catalog_map[name.lower()] = cat_name
+            for var in (item_data.variations or []):
+                v_data = var.item_variation_data
+                v_name = v_data.name if v_data else ""
+                if v_name and v_name != name:
+                    catalog_map[f"{name} - {v_name}".lower()] = cat_name
     
     print(f"Category map: {len(catalog_map)} items from {len(cat_names)} categories")
     return catalog_map
@@ -200,9 +191,11 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
     cursor = None
 
     while True:
-        body = {
-            "location_ids": [location_id],
-            "query": {
+        # v44 SDK: keyword args instead of body=dict
+        result = client.orders.search(
+            location_ids=[location_id],
+            cursor=cursor,
+            query={
                 "filter": {
                     "date_time_filter": {
                         "created_at": {
@@ -219,23 +212,17 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
                     "sort_order": "ASC"
                 }
             },
-            "limit": 500,
-        }
+            limit=500,
+        )
 
-        if cursor:
-            body["cursor"] = cursor
-
-        result = client.orders.search_orders(body=body)
-
-        if result.is_error():
-            errors = result.errors
-            print(f"Square Orders API error: {errors}")
+        if result.errors:
+            print(f"Square Orders API error: {result.errors}")
             break
 
-        orders = result.body.get("orders", [])
+        orders = result.orders or []
         all_orders.extend(orders)
 
-        cursor = result.body.get("cursor")
+        cursor = result.cursor
         if not cursor:
             break
 
@@ -245,42 +232,42 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
     unmatched = 0
     
     for order in all_orders:
-        order_id = order.get("id", "")
-        created_at = order.get("created_at", "")
-        customer_id = order.get("customer_id", "")
+        order_id = order.id or ""
+        created_at = order.created_at or ""
+        customer_id = order.customer_id or ""
 
         # Parse tenders (payment info)
-        tenders = order.get("tenders", [])
+        tenders = order.tenders or []
         card_brand = ""
         pan_suffix = ""
         if tenders:
-            card_details = tenders[0].get("card_details", {})
-            card = card_details.get("card", {})
-            card_brand = card.get("card_brand", "")
-            pan_suffix = card.get("last_4", "")
+            card_details = tenders[0].card_details
+            if card_details and card_details.card:
+                card_brand = card_details.card.card_brand or ""
+                pan_suffix = card_details.card.last4 or ""
 
         # Parse line items
-        line_items = order.get("line_items", [])
+        line_items = order.line_items or []
         for item in line_items:
-            item_name = item.get("name", "")
-            qty = float(item.get("quantity", "0"))
+            item_name = item.name or ""
+            qty = float(item.quantity or "0")
 
-            # Amounts are in cents (smallest currency unit)
-            base_price = int(item.get("base_price_money", {}).get("amount", 0)) / 100
-            total_money = int(item.get("total_money", {}).get("amount", 0)) / 100
-            total_tax = int(item.get("total_tax_money", {}).get("amount", 0)) / 100
-            total_discount = int(item.get("total_discount_money", {}).get("amount", 0)) / 100
+            # Amounts are in cents (smallest currency unit) — v44 uses pydantic Money objects
+            base_price = int(item.base_price_money.amount if item.base_price_money else 0) / 100
+            total_money = int(item.total_money.amount if item.total_money else 0) / 100
+            total_tax = int(item.total_tax_money.amount if item.total_tax_money else 0) / 100
+            total_discount = int(item.total_discount_money.amount if item.total_discount_money else 0) / 100
 
             gross_sales = base_price * qty
             net_sales = total_money - total_tax
 
             # Parse modifiers
-            modifiers = item.get("modifiers", [])
-            modifier_names = [m.get("name", "") for m in modifiers]
+            modifiers = item.modifiers or []
+            modifier_names = [m.name or "" for m in modifiers]
             modifiers_str = ", ".join(modifier_names) if modifier_names else ""
 
             # Get variation name for better item identification
-            variation_name = item.get("variation_name", "")
+            variation_name = item.variation_name or ""
             if variation_name and variation_name != item_name:
                 display_name = f"{item_name} - {variation_name}"
             else:
@@ -348,25 +335,8 @@ def sync_inventory() -> pd.DataFrame:
     location_id = get_location_id()
 
     # --- Step 1: Get all catalog items ---
-    all_items = []
-    cursor = None
-
-    while True:
-        result = client.catalog.list_catalog(
-            cursor=cursor,
-            types="ITEM"
-        )
-
-        if result.is_error():
-            print(f"❌ Square Catalog API error: {result.errors}")
-            break
-
-        objects = result.body.get("objects", [])
-        all_items.extend(objects)
-
-        cursor = result.body.get("cursor")
-        if not cursor:
-            break
+    # --- Step 1: Get all catalog items (SyncPager auto-paginates) ---
+    all_items = list(client.catalog.list(types="ITEM"))
 
     # --- Step 2: Build item -> variation mapping ---
     variation_ids = []
@@ -374,55 +344,58 @@ def sync_inventory() -> pd.DataFrame:
 
     # First, get all CATEGORY names for resolving reporting_category
     cat_names = {}
-    cursor = None
-    while True:
-        result = client.catalog.list_catalog(cursor=cursor, types="CATEGORY")
-        if result.is_error():
-            break
-        for obj in result.body.get("objects", []):
-            cat_names[obj["id"]] = obj.get("category_data", {}).get("name", "")
-        cursor = result.body.get("cursor")
-        if not cursor:
-            break
+    for obj in client.catalog.list(types="CATEGORY"):
+        cat_names[obj.id] = getattr(obj.category_data, "name", "") if obj.category_data else ""
 
     for item in all_items:
-        item_data = item.get("item_data", {})
-        product_name = item_data.get("name", "")
-        tax_ids = item_data.get("tax_ids", [])
+        item_data = item.item_data
+        if not item_data:
+            continue
+        product_name = item_data.name or ""
+        tax_ids = item_data.tax_ids or []
         has_gst = len(tax_ids) > 0  # Simplified GST detection
 
         # Resolve reporting_category
-        reporting = item_data.get("reporting_category")
-        if reporting and isinstance(reporting, dict):
-            cat_name = cat_names.get(reporting.get("id", ""), "")
+        reporting = item_data.reporting_category
+        if reporting:
+            cat_name = cat_names.get(reporting.id, "")
         else:
             cat_name = ""
 
-        for variation in item_data.get("variations", []):
-            var_id = variation.get("id", "")
-            var_data = variation.get("item_variation_data", {})
+        for variation in (item_data.variations or []):
+            var_id = variation.id or ""
+            var_data = variation.item_variation_data
+            if not var_data:
+                continue
 
-            sku = var_data.get("sku", "")
-            price_money = var_data.get("price_money", {})
-            price = int(price_money.get("amount", 0)) / 100 if price_money else 0
+            sku = var_data.sku or ""
+            price_money = var_data.price_money
+            price = int(price_money.amount) / 100 if price_money and price_money.amount else 0
 
-            # Unit cost (if available)
-            unit_cost_money = var_data.get("item_variation_vendor_infos", [])
+            # Unit cost (if available) — vendor infos may not be in v44 SDK
             unit_cost = 0
-            if unit_cost_money:
-                cost_data = unit_cost_money[0].get("item_variation_vendor_info_data", {})
-                cost_money = cost_data.get("price_money", {})
-                unit_cost = int(cost_money.get("amount", 0)) / 100
+            try:
+                vendor_infos = getattr(var_data, 'item_variation_vendor_infos', None) or []
+                if vendor_infos:
+                    vi = vendor_infos[0]
+                    vi_data = vi.item_variation_vendor_info_data if hasattr(vi, 'item_variation_vendor_info_data') else vi.get('item_variation_vendor_info_data', {})
+                    if vi_data:
+                        pm = vi_data.price_money if hasattr(vi_data, 'price_money') else vi_data.get('price_money', {})
+                        if pm:
+                            amt = pm.amount if hasattr(pm, 'amount') else pm.get('amount', 0)
+                            unit_cost = int(amt or 0) / 100
+            except Exception:
+                pass
 
             inv_catalog_map[var_id] = {
-                "product_id": item.get("id", ""),
+                "product_id": item.id or "",
                 "product_name": product_name,
                 "sku": sku,
                 "categories": cat_name,
                 "price": price,
                 "tax_gst": "Y" if has_gst else "N",
                 "default_unit_cost": unit_cost,
-                "unit": var_data.get("measurement_unit_id", ""),
+                "unit": var_data.measurement_unit_id or "",
             }
             variation_ids.append(var_id)
 
@@ -433,19 +406,19 @@ def sync_inventory() -> pd.DataFrame:
         # Batch in groups of 100
         for i in range(0, len(variation_ids), 100):
             batch_ids = variation_ids[i:i + 100]
-            result = client.inventory.batch_retrieve_inventory_counts(
-                body={
-                    "catalog_object_ids": batch_ids,
-                    "location_ids": [location_id],
-                }
-            )
-            if result.is_success():
-                for count in result.body.get("counts", []):
-                    obj_id = count.get("catalog_object_id", "")
-                    qty = float(count.get("quantity", "0"))
-                    state = count.get("state", "")
+            try:
+                # v44 SDK returns SyncPager for batch_get_counts
+                for count in client.inventory.batch_get_counts(
+                    catalog_object_ids=batch_ids,
+                    location_ids=[location_id],
+                ):
+                    obj_id = count.catalog_object_id or ""
+                    qty = float(count.quantity or "0")
+                    state = count.state or ""
                     if state == "IN_STOCK":
                         counts_map[obj_id] = counts_map.get(obj_id, 0) + qty
+            except Exception as e:
+                print(f"Warning: inventory batch error: {e}")
 
     # --- Step 5: Build inventory DataFrame ---
     today = datetime.now().strftime("%Y-%m-%d")
@@ -486,52 +459,31 @@ def sync_customers() -> pd.DataFrame:
     """
     client = get_square_client()
 
-    all_customers = []
-    cursor = None
-
-    while True:
-        body = {"limit": 100}
-        if cursor:
-            body["cursor"] = cursor
-
-        result = client.customers.list_customers(
-            cursor=cursor,
-            limit=100,
-        )
-
-        if result.is_error():
-            print(f"❌ Square Customers API error: {result.errors}")
-            break
-
-        customers = result.body.get("customers", [])
-        all_customers.extend(customers)
-
-        cursor = result.body.get("cursor")
-        if not cursor:
-            break
+    # SyncPager auto-paginates
+    all_customers = list(client.customers.list(limit=100))
 
     rows = []
     for customer in all_customers:
-        address = customer.get("address", {}) or {}
+        address = customer.address or None
         rows.append({
-            "Square Customer ID": customer.get("id", ""),
-            "First Name": customer.get("given_name", ""),
-            "Last Name": customer.get("family_name", ""),
-            "Email Address": customer.get("email_address", ""),
-            "Phone Number": customer.get("phone_number", ""),
-            "Creation Date": customer.get("created_at", ""),
-            "Customer Note": customer.get("note", ""),
-            "Reference ID": customer.get("reference_id", ""),
+            "Square Customer ID": customer.id or "",
+            "First Name": customer.given_name or "",
+            "Last Name": customer.family_name or "",
+            "Email Address": customer.email_address or "",
+            "Phone Number": customer.phone_number or "",
+            "Creation Date": customer.created_at or "",
+            "Customer Note": customer.note or "",
+            "Reference ID": customer.reference_id or "",
             # New fields for SMS marketing & analytics
-            "Birthday": customer.get("birthday", ""),
-            "Company Name": customer.get("company_name", ""),
-            "Address Line 1": address.get("address_line_1", ""),
-            "Locality": address.get("locality", ""),
-            "Postal Code": address.get("postal_code", ""),
-            "Creation Source": customer.get("creation_source", ""),
-            "Group IDs": ",".join(customer.get("group_ids", []) or []),
-            "Segment IDs": ",".join(customer.get("segment_ids", []) or []),
-            "Updated At": customer.get("updated_at", ""),
+            "Birthday": customer.birthday or "",
+            "Company Name": customer.company_name or "",
+            "Address Line 1": getattr(address, "address_line_1", "") or "" if address else "",
+            "Locality": getattr(address, "locality", "") or "" if address else "",
+            "Postal Code": getattr(address, "postal_code", "") or "" if address else "",
+            "Creation Source": customer.creation_source or "",
+            "Group IDs": ",".join(customer.group_ids or []),
+            "Segment IDs": ",".join(customer.segment_ids or []),
+            "Updated At": customer.updated_at or "",
         })
 
     df = pd.DataFrame(rows)
