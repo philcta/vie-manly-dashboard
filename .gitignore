@@ -49,3 +49,18 @@ logs/
 # Agent / AI config
 .agent/
 .gemini/
+.artifacts/
+
+# Data files (local only)
+*.csv
+*.json
+!package.json
+!services/item_category_map.json
+*.xlsx
+*.jpg
+*.png
+*.txt
+!requirements.txt
+!requirements.cloud.txt
+debug_*.txt
+*.dump
