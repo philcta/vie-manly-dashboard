@@ -11,22 +11,25 @@ import pandas as pd
 from datetime import date
 
 # Rate multiplier tiers (based on weekday rate)
+# Rates include 12% superannuation (except under-18 tiers)
 # If weekday rate matches a tier, use that tier's multipliers
-# Otherwise, use the standard $32 tier multipliers
+# Otherwise, use the standard multipliers
 RATE_TIERS = [
-    {"weekday": 33.19, "saturday": 39.83, "sunday": 46.46, "public_holiday": 66.38},
-    {"weekday": 32.00, "saturday": 38.00, "sunday": 44.00, "public_holiday": 63.00},
-    {"weekday": 25.80, "saturday": 30.96, "sunday": 36.12, "public_holiday": 51.60},
-    {"weekday": 18.71, "saturday": 22.46, "sunday": 30.00, "public_holiday": 37.42},
+    # Super-inclusive tiers (base × 1.12)
+    {"weekday": 37.17, "saturday": 44.61, "sunday": 52.04, "public_holiday": 74.35},
+    {"weekday": 35.84, "saturday": 42.56, "sunday": 49.28, "public_holiday": 70.56},
+    {"weekday": 28.90, "saturday": 34.68, "sunday": 40.45, "public_holiday": 57.79},
+    {"weekday": 20.96, "saturday": 25.16, "sunday": 33.60, "public_holiday": 41.91},
+    # Under-18 tiers (NO super)
     {"weekday": 15.18, "saturday": 18.21, "sunday": 21.25, "public_holiday": 30.36},
     {"weekday": 14.94, "saturday": 17.93, "sunday": 20.91, "public_holiday": 29.88},
 ]
 
 # Standard multipliers relative to weekday (used when no tier matches)
 STD_MULTIPLIERS = {
-    "saturday": 38.00 / 32.00,    # 1.1875
-    "sunday": 44.00 / 32.00,      # 1.375
-    "public_holiday": 63.00 / 32.00,  # 1.96875
+    "saturday": 42.56 / 35.84,       # 1.1875
+    "sunday": 49.28 / 35.84,         # 1.375
+    "public_holiday": 70.56 / 35.84, # 1.96875
 }
 
 
