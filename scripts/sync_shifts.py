@@ -17,6 +17,7 @@ Usage: python scripts/sync_shifts.py [--days N] [--backfill N]
 """
 import sys, os, json, urllib.request, argparse
 from datetime import datetime, timezone, timedelta, date
+from zoneinfo import ZoneInfo
 sys.stdout.reconfigure(encoding='utf-8')
 from dotenv import load_dotenv
 load_dotenv()
@@ -37,7 +38,7 @@ supa_headers = {
     'Prefer': 'resolution=merge-duplicates',
 }
 base = 'https://connect.squareup.com'
-SYD = timedelta(hours=11)
+SYD_TZ = ZoneInfo('Australia/Sydney')  # Handles DST automatically (AEDT=UTC+11, AEST=UTC+10)
 
 # ── Job title → business side mapping ──
 CAFE_TITLES = {'Kitchen'}  # 100% Cafe
@@ -189,7 +190,7 @@ def fetch_actual(start_dt):
 
 # ── Main sync for a single day ──
 def sync_day(target_date, names, jobs, rates):
-    syd_tz = timezone(SYD)
+    syd_tz = SYD_TZ
     day_start = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0, tzinfo=syd_tz)
     day_end = day_start + timedelta(days=1)
     day_type = get_day_type(target_date)
@@ -368,7 +369,7 @@ if __name__ == '__main__':
     rates = load_rates()
     print(f"  {len(rates)} rate entries loaded")
 
-    syd_tz = timezone(SYD)
+    syd_tz = SYD_TZ
     today = datetime.now(syd_tz).date()
 
     if args.backfill > 0:
