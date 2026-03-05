@@ -30,6 +30,7 @@ from charts.sales_report import show_sales_report
 from charts.inventory import show_inventory
 from charts.product_mix_only import show_product_mix_only
 from charts.customer_segmentation import show_customer_segmentation
+from charts.staff import show_staff
 
 # Load dotenv for local development
 try:
@@ -292,7 +293,8 @@ section = st.sidebar.radio("📂 Sections", [
     "Sales report by category",
     "Inventory",
     "product mix",
-    "Customers insights"
+    "Customers insights",
+    "Staff"
 ])
 
 # === 主体展示 ===
@@ -336,3 +338,6 @@ elif section == "Customers insights":
                 )
                 tx_raw = tx_raw.merge(name_map, on="Customer ID", how="left")
     show_customer_segmentation(tx_raw, mem)
+elif section == "Staff":
+    client = get_supabase_client()
+    show_staff(client)

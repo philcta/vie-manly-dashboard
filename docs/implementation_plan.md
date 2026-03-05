@@ -1,0 +1,77 @@
+�# Implementation Plan — Property Investment Platform
+
+## Phase 0: Foundation ✅ (Current)
+- [x] Set up project structure (monorepo layout)
+- [x] Create `agent.md` with DOE principles and architecture
+- [x] Write database schema migrations (SQL)
+- [x] Create RLS policies
+- [x] Document architecture, schema, and security
+- [x] Set up Stitch → code workflow guide
+- [x] Copy existing scrapers to `scrapers/`
+- [ ] Clean up root directory (move loose images to `design/assets/`)
+- [ ] Initialize Git repo and push to GitHub
+
+## Phase 1: Supabase Backend
+- [ ] Create Supabase project (use `/setup_supabase` workflow)
+- [ ] Run database migrations
+- [ ] Test RLS policies (create test investor + admin accounts)
+- [ ] Create `deal-media` storage bucket (private)
+- [ ] Set up storage policies
+- [ ] Update scrapers to write to Supabase instead of Google Sheets
+- [ ] Test scraper → Supabase pipeline (PropTrack, Cotality, PropertyValue)
+
+## Phase 2: Admin Dashboard (Next.js)
+- [ ] Initialize Next.js app in `apps/admin/`
+- [ ] Connect to Supabase (auth + client)
+- [ ] Build admin auth flow (login/logout)
+- [ ] Build deal management screens:
+  - [ ] Deal list (with status filters)
+  - [ ] Deal create/edit form
+  - [ ] Media upload (photos + PDFs)
+  - [ ] Deal publish/archive workflow
+- [ ] Build enquiry management screen
+- [ ] Build market data viewer (scraped data)
+- [ ] Deploy to Vercel
+
+## Phase 3: Shared Packages
+- [ ] Set up `packages/ui/` with design tokens from Stitch
+- [ ] Build shared UI components (buttons, cards, chips, badges)
+- [ ] Set up `packages/data/` with typed Supabase queries
+- [ ] Set up `packages/types/` (auto-generate from Supabase schema)
+- [ ] Install Zod for input validation
+
+## Phase 4: Mobile App (Expo)
+- [ ] Initialize Expo app in `apps/mobile/`
+- [ ] Connect to Supabase (auth)
+- [ ] Build investor auth flow (login/register)
+- [ ] Build deal feed (list of published deals)
+- [ ] Build deal detail screen
+- [ ] Build filters (state, price, yield, strategy)
+- [ ] Build favourites feature
+- [ ] Build enquiry submission
+- [ ] Build market data screens (PropTrack charts, etc.)
+- [ ] Configure EAS Build & Submit
+
+## Phase 5: Polish & Launch
+- [ ] Edge Function: enquiry email notifications
+- [ ] Image optimization (Supabase transforms)
+- [ ] Error handling & loading states
+- [ ] Performance testing (mobile)
+- [ ] Security audit (run `docs/security_checklist.md`)
+- [ ] Analytics setup
+- [ ] App Store submission
+
+## Phase 6: Enhancements (Post-Launch)
+- [ ] Push notifications (Expo Push API)
+- [ ] Realtime "new deals" via Supabase Realtime
+- [ ] Advanced analytics dashboard
+- [ ] Automated scraper scheduling (GitHub Actions / cron)
+- [ ] SEO for admin dashboard (if public-facing)
+
+---
+
+## Current Status
+**Phase 0 — Foundation is set up.**
+
+Next action: Set up Supabase project (Phase 1) and initialize the Next.js admin app (Phase 2).
+�*cascade082=file:///f:/phil/antigravity/directives/implementation_plan.md
