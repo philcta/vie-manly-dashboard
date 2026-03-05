@@ -8,10 +8,13 @@ Logic:
      - If a matching actual shift exists with BOTH clock-in AND clock-out → use actual hours
      - Otherwise → use scheduled hours
   4. Determine day type (weekday/saturday/sunday/public_holiday)
-  5. Look up hourly rate from staff_rates table (per person × day type)
+  5. Look up hourly rate from Supabase staff_rates table (per person × day type)
+     ⚠️ Rates come ONLY from staff_rates — NOT from Square's hourly_rate field
+     (Square rates are unreliable: some staff have $0 rates in their wage_setting)
   6. Handle Barrista 80/20 split (Cafe/Retail)
   7. Historical: Jenny Kirkpatrick was "Retail Assistant" but filled Barrista role → 80/20 split
-  8. Upsert into Supabase staff_shifts table
+  8. Alert when new staff appear without rates (auto-create $0 stubs for manual setup)
+  9. Upsert into Supabase staff_shifts table
 
 Usage: python scripts/sync_shifts.py [--days N] [--backfill N]
 """
@@ -121,10 +124,12 @@ def build_lookups():
     return names, jobs
 
 # ── Load rates from Supabase staff_rates table ──
+# ⚠️ This is the ONLY source of truth for hourly rates.
+# Square's hourly_rate field is NOT used (unreliable — some staff have $0).
 def load_rates():
     """Returns dict: (team_member_id, job_title, day_type) → hourly_rate"""
     req = urllib.request.Request(
-        f"{SUPA_URL}/rest/v1/staff_rates?select=team_member_id,job_title,day_type,hourly_rate",
+        f"{SUPA_URL}/rest/v1/staff_rates?select=team_member_id,staff_name,job_title,day_type,hourly_rate",
         headers={
             'apikey': SUPA_KEY,
             'Authorization': 'Bearer ' + SUPA_KEY,
@@ -139,11 +144,54 @@ def load_rates():
     return rates
 
 def get_rate(rates, mid, job_title, day_type):
-    """Look up rate, fallback to weekday if specific day type not set."""
+    """Look up rate from staff_rates, fallback to weekday if specific day type not set."""
     rate = rates.get((mid, job_title, day_type), 0)
     if rate == 0 and day_type != 'weekday':
         rate = rates.get((mid, job_title, 'weekday'), 0)
     return rate
+
+# ── Track and alert on missing rates ──
+_missing_rates = set()  # (name, job_title) tuples for alerting
+
+def check_and_alert_rate(rates, mid, job_title, day_type, name):
+    """Check rate and record alert if missing. Returns the rate (may be 0)."""
+    rate = get_rate(rates, mid, job_title, day_type)
+    if rate == 0:
+        _missing_rates.add((name, job_title, mid))
+    return rate
+
+def create_rate_stubs(missing_set, names):
+    """Auto-create $0 rate stubs in staff_rates for new staff so they appear in dashboard."""
+    if not missing_set:
+        return
+    DAY_TYPES = ['weekday', 'saturday', 'sunday', 'public_holiday']
+    stubs = []
+    for name, job_title, mid in missing_set:
+        for dt in DAY_TYPES:
+            stubs.append({
+                "team_member_id": mid,
+                "staff_name": name,
+                "job_title": job_title,
+                "day_type": dt,
+                "hourly_rate": 0,
+            })
+    if stubs:
+        stub_headers = {
+            'apikey': SUPA_KEY,
+            'Authorization': 'Bearer ' + SUPA_KEY,
+            'Content-Type': 'application/json',
+            'Prefer': 'resolution=ignore-duplicates',  # don't overwrite existing
+        }
+        req = urllib.request.Request(
+            f"{SUPA_URL}/rest/v1/staff_rates?on_conflict=team_member_id,job_title,day_type",
+            data=json.dumps(stubs).encode(),
+            headers=stub_headers,
+            method='POST'
+        )
+        try:
+            urllib.request.urlopen(req)
+        except Exception as e:
+            print(f"  ⚠️ Could not create rate stubs: {e}")
 
 # ── Fetch scheduled shifts ──
 def fetch_scheduled(start_dt, end_dt):
@@ -266,7 +314,7 @@ def sync_day(target_date, names, jobs, rates):
             for side, pct in split.items():
                 suffix = f"_{side}"
                 rate_job = job_title  # look up rate under original job title
-                rate = get_rate(rates, mid, rate_job, day_type)
+                rate = check_and_alert_rate(rates, mid, rate_job, day_type, name)
 
                 rows.append({
                     "shift_date": str(target_date),
@@ -286,7 +334,7 @@ def sync_day(target_date, names, jobs, rates):
                 })
         else:
             side = get_side(job_title)
-            rate = get_rate(rates, mid, job_title, day_type)
+            rate = check_and_alert_rate(rates, mid, job_title, day_type, name)
 
             rows.append({
                 "shift_date": str(target_date),
@@ -316,7 +364,7 @@ def sync_day(target_date, names, jobs, rates):
             act_start = datetime.fromisoformat(s['start_at'].replace('Z', '+00:00'))
             act_end = datetime.fromisoformat(s['end_at'].replace('Z', '+00:00'))
             act_hours = round((act_end - act_start).total_seconds() / 3600, 2)
-            rate = get_rate(rates, mid, job_title, day_type)
+            rate = check_and_alert_rate(rates, mid, job_title, day_type, name)
 
             rows.append({
                 "shift_date": str(target_date),
@@ -380,6 +428,8 @@ if __name__ == '__main__':
         days_to_sync = args.days
 
     total = 0
+    _missing_rates.clear()  # reset per run
+
     for i in range(days_to_sync):
         d = start_date + timedelta(days=i)
         rows = sync_day(d, names, jobs, rates)
@@ -397,10 +447,23 @@ if __name__ == '__main__':
         has_split = any('_Bar' in r['job_title'] or '_Retail' in r['job_title'] for r in rows)
         split_flag = ' 🔀' if has_split else ''
 
+        # Flag shifts with $0 rates for this day
+        zero_rate = [r for r in rows if r['hourly_rate'] == 0]
+        rate_flag = f' ⚠️{len(zero_rate)} missing rates' if zero_rate else ''
+
         emoji = '✅' if upserted > 0 else '⚠️'
         print(f"  {emoji} {d.strftime('%a %d %b')} [{day_type[:3]}]: {len(rows)} shifts "
               f"(s:{schedule_count} a:{actual_count}) "
               f"☕{cafe_h:.1f}h 🛍️{retail_h:.1f}h "
-              f"💰${total_cost:.0f}{split_flag}")
+              f"💰${total_cost:.0f}{split_flag}{rate_flag}")
+
+    # ── Missing rate alerts ──
+    if _missing_rates:
+        print(f"\n🚨 MISSING RATES — {len(_missing_rates)} staff×job combos have $0 rate:")
+        for name, job_title, mid in sorted(_missing_rates):
+            print(f"  ⚠️ {name} ({job_title}) — needs rate setup in Staff dashboard")
+        # Auto-create $0 stubs so they appear in dashboard for editing
+        create_rate_stubs(_missing_rates, names)
+        print(f"  → Created $0 stub entries in staff_rates (edit via Staff dashboard)")
 
     print(f"\n✅ Done. {total} total rows synced to Supabase.")
