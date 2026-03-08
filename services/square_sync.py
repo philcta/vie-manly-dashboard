@@ -476,8 +476,8 @@ def sync_customers() -> pd.DataFrame:
     offset = 0
     page_size = 1000
     while True:
-        resp = supa.table("member_loyalty").select("customer_id").range(offset, offset + page_size - 1).execute()
-        batch = resp.data or []
+        result = supa.table_select("member_loyalty", columns="customer_id", limit=page_size, offset=offset)
+        batch = result.get("data", [])
         for r in batch:
             loyalty_ids.add(r["customer_id"])
         if len(batch) < page_size:
