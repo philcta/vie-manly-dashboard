@@ -46,10 +46,14 @@ for m in all_members:
     mid = m['id']
     name = f"{m.get('given_name', '')} {m.get('family_name', '')}".strip()
     status = m.get('status', 'INACTIVE')
-    
+    if not name:
+        continue
+
     wage = m.get('wage_setting', {})
     for a in wage.get('job_assignments', []):
         job_title = a.get('job_title', '').strip()
+        if not job_title:
+            continue
         rate_info = a.get('hourly_rate', {})
         base_rate = rate_info.get('amount', 0) / 100 if rate_info else 0
         

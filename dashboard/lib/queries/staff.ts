@@ -125,13 +125,26 @@ export function buildGanttData(shifts: StaffShift[]) {
     return Array.from(staffMap.values());
 }
 
-/** Pivot staff rates into per-person rows for the rates table */
+/** Pivot staff rates into per-person rows for the rates table.
+ *  Staff with multiple job titles are merged into a single row
+ *  with a combined title (e.g. "Kitchen / Manager") and the
+ *  highest applicable rate for each day type.
+ */
 export function pivotRates(rates: StaffRate[]) {
+    // Short labels for common job titles
+    const shortTitle = (t: string) => {
+        const map: Record<string, string> = {
+            "Retail Assistant": "Retail",
+            "Expansion/Meeting": "Expansion",
+        };
+        return map[t] || t;
+    };
+
     const rateMap = new Map<
         string,
         {
             name: string;
-            jobTitle: string;
+            jobTitles: Set<string>;
             teamMemberId: string;
             weekday: number;
             saturday: number;
@@ -141,11 +154,12 @@ export function pivotRates(rates: StaffRate[]) {
     >();
 
     for (const r of rates) {
-        const key = `${r.team_member_id}-${r.job_title}`;
+        // Group by staff_name (not team_member_id+job_title)
+        const key = r.staff_name;
         if (!rateMap.has(key)) {
             rateMap.set(key, {
                 name: r.staff_name,
-                jobTitle: r.job_title,
+                jobTitles: new Set(),
                 teamMemberId: r.team_member_id,
                 weekday: 0,
                 saturday: 0,
@@ -154,23 +168,34 @@ export function pivotRates(rates: StaffRate[]) {
             });
         }
         const entry = rateMap.get(key)!;
+        entry.jobTitles.add(r.job_title);
+
+        // Take the max rate for each day type across all roles
         switch (r.day_type) {
             case "weekday":
-                entry.weekday = r.hourly_rate;
+                entry.weekday = Math.max(entry.weekday, r.hourly_rate);
                 break;
             case "saturday":
-                entry.saturday = r.hourly_rate;
+                entry.saturday = Math.max(entry.saturday, r.hourly_rate);
                 break;
             case "sunday":
-                entry.sunday = r.hourly_rate;
+                entry.sunday = Math.max(entry.sunday, r.hourly_rate);
                 break;
             case "public_holiday":
-                entry.publicHoliday = r.hourly_rate;
+                entry.publicHoliday = Math.max(entry.publicHoliday, r.hourly_rate);
                 break;
         }
     }
 
-    return Array.from(rateMap.values()).sort((a, b) =>
-        a.name.localeCompare(b.name)
-    );
+    return Array.from(rateMap.values())
+        .map((entry) => ({
+            name: entry.name,
+            jobTitle: Array.from(entry.jobTitles).sort().map(shortTitle).join(" / "),
+            teamMemberId: entry.teamMemberId,
+            weekday: entry.weekday,
+            saturday: entry.saturday,
+            sunday: entry.sunday,
+            publicHoliday: entry.publicHoliday,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
 }
