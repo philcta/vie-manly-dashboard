@@ -245,8 +245,13 @@ export default function MembersPage() {
                     };
                 })
             );
-        } catch (err) {
-            console.error("Failed to load members data:", err);
+        } catch (err: unknown) {
+            const msg = err instanceof Error
+                ? err.message
+                : typeof err === 'object' && err !== null
+                    ? JSON.stringify(err)
+                    : String(err);
+            console.error("Failed to load members data:", msg, err);
         } finally {
             setLoading(false);
         }

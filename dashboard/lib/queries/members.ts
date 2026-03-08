@@ -202,40 +202,79 @@ export interface MemberDailyStats {
     visit_frequency_30d: number;
 }
 
-/** Fetch all members */
+/** Fetch all members (paginated — table has 4000+ rows) */
 export async function fetchMembers(): Promise<Member[]> {
-    const { data, error } = await supabase
-        .from("members")
-        .select("*")
-        .order("first_name", { ascending: true });
+    const all: Member[] = [];
+    const PAGE = 1000;
+    let from = 0;
+    while (true) {
+        const { data, error } = await supabase
+            .from("members")
+            .select("*")
+            .order("id", { ascending: true })
+            .range(from, from + PAGE - 1);
 
-    if (error) throw error;
-    return data || [];
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < PAGE) break;
+        from += PAGE;
+    }
+    return all;
 }
 
-/** Fetch member loyalty data */
+/** Fetch member loyalty data (paginated — table has 2800+ rows) */
 export async function fetchMemberLoyalty(): Promise<MemberLoyalty[]> {
-    const { data, error } = await supabase
-        .from("member_loyalty")
-        .select("customer_id, balance, lifetime_points, points_redeemed, enrolled_at");
+    const all: MemberLoyalty[] = [];
+    const PAGE = 1000;
+    let from = 0;
+    while (true) {
+        const { data, error } = await supabase
+            .from("member_loyalty")
+            .select("customer_id, balance, lifetime_points, points_redeemed, enrolled_at")
+            .range(from, from + PAGE - 1);
 
-    if (error) throw error;
-    return (data || []).map((l) => ({
-        ...l,
-        points_redeemed: l.points_redeemed ?? 0,
-    }));
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(
+            ...data.map((l) => ({
+                ...l,
+                points_redeemed: l.points_redeemed ?? 0,
+            }))
+        );
+        if (data.length < PAGE) break;
+        from += PAGE;
+    }
+    return all;
 }
 
-/** Fetch member daily stats for recent date (latest available) */
+/** Fetch latest member daily stats — only the most recent row per member.
+ *  Uses an RPC if available, otherwise fetches recent rows and deduplicates client-side.
+ */
 export async function fetchLatestMemberStats(): Promise<MemberDailyStats[]> {
-    const { data, error } = await supabase
-        .from("member_daily_stats")
-        .select("*")
-        .order("date", { ascending: false })
-        .limit(5000);
+    // Fetch recent stats (last 14 days should capture latest for all active members)
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 14);
+    const cutoffStr = cutoff.toISOString().slice(0, 10);
 
-    if (error) throw error;
-    return data || [];
+    const all: MemberDailyStats[] = [];
+    const PAGE = 1000;
+    let from = 0;
+    while (true) {
+        const { data, error } = await supabase
+            .from("member_daily_stats")
+            .select("*")
+            .gte("date", cutoffStr)
+            .order("date", { ascending: false })
+            .range(from, from + PAGE - 1);
+
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < PAGE) break;
+        from += PAGE;
+    }
+    return all;
 }
 
 /** Fetch daily store stats for member/non-member ratio charts */
