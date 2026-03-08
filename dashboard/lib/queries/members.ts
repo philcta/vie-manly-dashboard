@@ -202,8 +202,15 @@ export interface MemberDailyStats {
     visit_frequency_30d: number;
 }
 
-/** Fetch all members (paginated — table has 4000+ rows) */
+/** Fetch loyalty-enrolled members only (paginated — table has ~2800 rows) */
 export async function fetchMembers(): Promise<Member[]> {
+    // Only fetch members who exist in member_loyalty
+    const { data: loyaltyData } = await supabase
+        .from("member_loyalty")
+        .select("customer_id");
+
+    const loyaltyIds = new Set((loyaltyData || []).map((l: { customer_id: string }) => l.customer_id));
+
     const all: Member[] = [];
     const PAGE = 1000;
     let from = 0;
@@ -216,7 +223,8 @@ export async function fetchMembers(): Promise<Member[]> {
 
         if (error) throw error;
         if (!data || data.length === 0) break;
-        all.push(...data);
+        // Filter to loyalty-enrolled only (safety net)
+        all.push(...data.filter((m: Member) => loyaltyIds.has(m.square_customer_id)));
         if (data.length < PAGE) break;
         from += PAGE;
     }

@@ -460,22 +460,44 @@ def sync_inventory() -> pd.DataFrame:
 
 def sync_customers() -> pd.DataFrame:
     """
-    Fetch all customers from Square Customers API.
-    Pulls all available fields for SMS marketing and analytics.
+    Fetch customers from Square Customers API — only those enrolled in loyalty.
+    Non-loyalty customers (card-only transactions, orphan records) are excluded.
 
     Returns:
-        DataFrame with member rows
+        DataFrame with member rows (loyalty-enrolled only)
     """
+    from .db_supabase import get_supabase_client
+
     client = get_square_client()
 
-    # SyncPager auto-paginates
-    all_customers = list(client.customers.list(limit=100))
+    # 1. Get the set of customer IDs enrolled in loyalty
+    supa = get_supabase_client()
+    loyalty_ids = set()
+    offset = 0
+    page_size = 1000
+    while True:
+        resp = supa.table("member_loyalty").select("customer_id").range(offset, offset + page_size - 1).execute()
+        batch = resp.data or []
+        for r in batch:
+            loyalty_ids.add(r["customer_id"])
+        if len(batch) < page_size:
+            break
+        offset += page_size
+    print(f"  📋 {len(loyalty_ids)} loyalty-enrolled customer IDs loaded")
 
+    # 2. Fetch all customers from Square (SyncPager auto-paginates)
+    all_customers = list(client.customers.list(limit=100))
+    print(f"  📥 {len(all_customers)} total customers in Square")
+
+    # 3. Filter to loyalty-enrolled only
     rows = []
     for customer in all_customers:
+        cid = customer.id or ""
+        if cid not in loyalty_ids:
+            continue
         address = customer.address or None
         rows.append({
-            "Square Customer ID": customer.id or "",
+            "Square Customer ID": cid,
             "First Name": customer.given_name or "",
             "Last Name": customer.family_name or "",
             "Email Address": customer.email_address or "",
@@ -496,7 +518,8 @@ def sync_customers() -> pd.DataFrame:
         })
 
     df = pd.DataFrame(rows)
-    print(f"✅ Fetched {len(df)} customers from Square (with extended fields)")
+    skipped = len(all_customers) - len(df)
+    print(f"✅ Fetched {len(df)} loyalty members from Square ({skipped} non-loyalty skipped)")
     return df
 
 
