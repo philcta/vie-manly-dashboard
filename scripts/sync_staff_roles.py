@@ -1,4 +1,9 @@
-"""Sync Square Team Members → Supabase staff_roles table with business side mapping."""
+"""Sync Square Team Members → Supabase staff_roles table with business side mapping.
+
+⚠️ HOURLY RATES are NOT sourced from Square.
+Rates are managed exclusively in Supabase staff_rates table
+(editable via Settings > Staff Rates in the dashboard).
+"""
 import sys, os, json, urllib.request
 sys.stdout.reconfigure(encoding='utf-8')
 from dotenv import load_dotenv
@@ -55,16 +60,12 @@ for m in all_members:
     mid = m.get('id', '')
     status = m.get('status', 'INACTIVE')
     
-    # Get job title and hourly rate
+    # Get job title from Square (rates come from Supabase staff_rates, NOT Square)
     job_title = ''
-    hourly_rate = None
     wage = m.get('wage_setting', {})
     assignments = wage.get('job_assignments', [])
     if assignments:
         job_title = assignments[0].get('job_title', '').strip()
-        rate = assignments[0].get('hourly_rate', {})
-        if rate and rate.get('amount', 0) > 0:
-            hourly_rate = rate['amount'] / 100
     
     # Determine business side
     business_side = 'Bar' if job_title in CAFE_TITLES else 'Retail'
@@ -74,7 +75,6 @@ for m in all_members:
         "staff_name": name,
         "job_title": job_title,
         "business_side": business_side,
-        "hourly_rate": hourly_rate,
         "is_active": status == 'ACTIVE',
     })
 
@@ -100,14 +100,11 @@ retail_staff = [r for r in rows if r['business_side'] == 'Retail']
 active = [r for r in rows if r['is_active']]
 print(f"  Cafe side (Kitchen/Manager/Owner): {len(cafe_staff)}")
 for s in cafe_staff:
-    rate_str = f"${s['hourly_rate']:.2f}/hr" if s['hourly_rate'] else "⚠️ No rate set"
     active_str = "✅" if s['is_active'] else "❌"
-    print(f"    {active_str} {s['staff_name']:<25} {s['job_title']:<15} {rate_str}")
+    print(f"    {active_str} {s['staff_name']:<25} {s['job_title']:<15}")
 print(f"  Retail side: {len(retail_staff)}")
 for s in retail_staff:
-    rate_str = f"${s['hourly_rate']:.2f}/hr" if s['hourly_rate'] else "⚠️ No rate set"
     active_str = "✅" if s['is_active'] else "❌"
-    print(f"    {active_str} {s['staff_name']:<25} {s['job_title']:<15} {rate_str}")
+    print(f"    {active_str} {s['staff_name']:<25} {s['job_title']:<15}")
 print(f"\n  Active staff total: {len(active)}")
-print(f"  ⚠️  Staff with $0 rate: {sum(1 for r in rows if not r['hourly_rate'])}")
-print(f"      (You said you'll populate hourly rates in Square today)")
+print(f"  ℹ️  Hourly rates managed in Settings > Staff Rates (not from Square)")

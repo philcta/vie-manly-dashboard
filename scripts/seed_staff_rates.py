@@ -1,6 +1,8 @@
-"""Populate staff_rates table from current Square rates as weekday base.
+"""Populate staff_rates table with $0 stub entries for all staff × job × day_type combos.
 Creates 4 rows per person per job: weekday, saturday, sunday, public_holiday.
-Weekday = Square rate, others = 0 (to be filled in via dashboard).
+All rates start at $0 — set actual rates via Settings > Staff Rates in the dashboard.
+
+⚠️ Hourly rates are NOT sourced from Square.
 """
 import sys, os, json, urllib.request
 sys.stdout.reconfigure(encoding='utf-8')
@@ -54,8 +56,6 @@ for m in all_members:
         job_title = a.get('job_title', '').strip()
         if not job_title:
             continue
-        rate_info = a.get('hourly_rate', {})
-        base_rate = rate_info.get('amount', 0) / 100 if rate_info else 0
         
         for dt in DAY_TYPES:
             rows.append({
@@ -63,7 +63,7 @@ for m in all_members:
                 "staff_name": name,
                 "job_title": job_title,
                 "day_type": dt,
-                "hourly_rate": base_rate if dt == 'weekday' else 0,  # only weekday pre-filled
+                "hourly_rate": 0,  # all rates start at $0 — set in Settings
             })
 
 # Upsert
@@ -89,23 +89,5 @@ print(f"\n📊 Summary:")
 active = [m for m in all_members if m.get('status') == 'ACTIVE']
 print(f"  Active staff: {len(active)}")
 print(f"  Total rate entries: {len(rows)}")
-print(f"  Weekday rates pre-filled from Square")
-print(f"  Saturday/Sunday/Public Holiday rates = $0 (to be set in dashboard)")
-
-# Show the rate card
-print(f"\n{'Name':<25} {'Job':<18} {'Weekday':>8} {'Sat':>8} {'Sun':>8} {'PH':>8}")
-print(f"{'-'*25} {'-'*18} {'-'*8} {'-'*8} {'-'*8} {'-'*8}")
-
-seen = set()
-for m in sorted(active, key=lambda x: x.get('given_name', '')):
-    mid = m['id']
-    name = f"{m.get('given_name', '')} {m.get('family_name', '')}".strip()
-    wage = m.get('wage_setting', {})
-    for a in wage.get('job_assignments', []):
-        job_title = a.get('job_title', '').strip()
-        rate_info = a.get('hourly_rate', {})
-        base_rate = rate_info.get('amount', 0) / 100 if rate_info else 0
-        key = (mid, job_title)
-        if key not in seen:
-            seen.add(key)
-            print(f"{name:<25} {job_title:<18} ${base_rate:>6.2f} ${'0.00':>5} ${'0.00':>5} ${'0.00':>5}")
+print(f"  All rates start at $0 — set actual rates in Settings > Staff Rates")
+print(f"  (Existing rates in Supabase are NOT overwritten due to ignore-duplicates policy)")
