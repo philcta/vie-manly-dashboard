@@ -49,6 +49,7 @@ export default function StaffPage() {
     const [netSales, setNetSales] = useState(0);
     const [compNetSales, setCompNetSales] = useState(0);
     const [ratesTable, setRatesTable] = useState<ReturnType<typeof pivotRates>>([]);
+    const [ratesFilter, setRatesFilter] = useState<"all" | "active" | "inactive">("active");
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -228,40 +229,95 @@ export default function StaffPage() {
             </div>
 
             {/* Staff Rates Table */}
-            <div className="bg-card rounded-xl border border-border overflow-hidden" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-                <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-foreground">Staff Rates</h3>
-                    <span className="text-xs text-muted-foreground">
-                        Rates include 12% superannuation (except under-18)
-                    </span>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full">
-                        <thead>
-                            <tr className="bg-[#FAFAF8]">
-                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-body">Name</th>
-                                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-body">Job Title</th>
-                                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-body">Weekday</th>
-                                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-body">Saturday</th>
-                                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-body">Sunday</th>
-                                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-body">Public Holiday</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {ratesTable.map((r, i) => (
-                                <tr key={i} className="border-b border-[#F0F0EE] row-hover">
-                                    <td className="px-4 py-3 text-sm font-medium text-foreground">{r.name}</td>
-                                    <td className="px-4 py-3 text-sm text-text-body">{r.jobTitle}</td>
-                                    <td className="px-4 py-3 text-sm text-right tabular-nums text-foreground">{formatCurrency(r.weekday)}</td>
-                                    <td className="px-4 py-3 text-sm text-right tabular-nums text-foreground">{formatCurrency(r.saturday)}</td>
-                                    <td className="px-4 py-3 text-sm text-right tabular-nums text-foreground">{formatCurrency(r.sunday)}</td>
-                                    <td className="px-4 py-3 text-sm text-right tabular-nums text-foreground">{formatCurrency(r.publicHoliday)}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+            {(() => {
+                const activeRates = ratesTable.filter((r) => r.isActive);
+                const inactiveRates = ratesTable.filter((r) => !r.isActive);
+                const filteredRates =
+                    ratesFilter === "all"
+                        ? ratesTable
+                        : ratesFilter === "active"
+                            ? activeRates
+                            : inactiveRates;
+
+                return (
+                    <div className="bg-card rounded-xl border border-border overflow-hidden" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+                        <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <h3 className="text-base font-semibold text-foreground">Staff Rates</h3>
+                                <div className="flex items-center gap-2">
+                                    {([
+                                        { value: "all" as const, label: `All (${ratesTable.length})` },
+                                        { value: "active" as const, label: `Active (${activeRates.length})` },
+                                        { value: "inactive" as const, label: `Inactive (${inactiveRates.length})` },
+                                    ]).map((pill) => (
+                                        <button
+                                            key={pill.value}
+                                            onClick={() => setRatesFilter(pill.value)}
+                                            className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors cursor-pointer ${ratesFilter === pill.value
+                                                ? "bg-olive text-white"
+                                                : "bg-olive-surface text-text-body hover:bg-olive/10"
+                                                }`}
+                                        >
+                                            {pill.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                                Rates include 12% superannuation (except under-18)
+                            </span>
+                        </div>
+                        <div className="max-h-[480px] overflow-y-auto">
+                            <table className="w-full text-sm">
+                                <thead className="sticky top-0 z-10">
+                                    <tr className="bg-[#FAFAF8] text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                                        <th className="text-left px-4 py-2.5">Name</th>
+                                        <th className="text-left px-4 py-2.5">Role</th>
+                                        <th className="text-right px-4 py-2.5 w-24">Weekday</th>
+                                        <th className="text-right px-4 py-2.5 w-24">Saturday</th>
+                                        <th className="text-right px-4 py-2.5 w-24">Sunday</th>
+                                        <th className="text-right px-4 py-2.5 w-28">Public Holiday</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredRates.map((r, i) => (
+                                        <tr
+                                            key={r.name}
+                                            className={`border-t border-border transition-colors ${!r.isActive
+                                                ? "opacity-50 bg-[#FAFAF8]/50"
+                                                : i % 2 === 0
+                                                    ? "bg-white"
+                                                    : "bg-[#FAFAF8]/50"
+                                                } hover:bg-olive-surface/30`}
+                                        >
+                                            <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">
+                                                {r.name}
+                                                {!r.isActive && (
+                                                    <span className="ml-2 text-[10px] font-semibold uppercase tracking-wider text-coral bg-coral/10 px-1.5 py-0.5 rounded-full">
+                                                        Inactive
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{r.jobTitle}</td>
+                                            <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.weekday)}</td>
+                                            <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.saturday)}</td>
+                                            <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.sunday)}</td>
+                                            <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.publicHoliday)}</td>
+                                        </tr>
+                                    ))}
+                                    {filteredRates.length === 0 && (
+                                        <tr>
+                                            <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground text-sm">
+                                                No staff match this filter.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                );
+            })()}
 
             {loading && (
                 <div className="fixed inset-0 ml-[220px] bg-background/80 flex items-center justify-center z-40">

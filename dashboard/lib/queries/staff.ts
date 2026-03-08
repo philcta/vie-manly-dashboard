@@ -31,6 +31,7 @@ export interface StaffRate {
     job_title: string;
     day_type: string;
     hourly_rate: number;
+    is_active: boolean;
 }
 
 /** Fetch all shifts for a date range */
@@ -150,6 +151,7 @@ export function pivotRates(rates: StaffRate[]) {
             saturday: number;
             sunday: number;
             publicHoliday: number;
+            isActive: boolean;
         }
     >();
 
@@ -165,6 +167,7 @@ export function pivotRates(rates: StaffRate[]) {
                 saturday: 0,
                 sunday: 0,
                 publicHoliday: 0,
+                isActive: r.is_active !== false,
             });
         }
         const entry = rateMap.get(key)!;
@@ -196,6 +199,7 @@ export function pivotRates(rates: StaffRate[]) {
             saturday: entry.saturday,
             sunday: entry.sunday,
             publicHoliday: entry.publicHoliday,
+            isActive: entry.isActive,
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
 }
