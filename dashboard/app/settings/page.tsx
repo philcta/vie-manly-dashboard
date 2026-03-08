@@ -10,6 +10,11 @@ const CategoryClassification = dynamic(
     { ssr: false, loading: () => <p className="text-sm text-muted-foreground py-4">Loading...</p> }
 );
 
+const StaffRatesEditor = dynamic(
+    () => import("@/components/staff-rates-editor"),
+    { ssr: false, loading: () => <p className="text-sm text-muted-foreground py-4">Loading rates...</p> }
+);
+
 interface AccordionSectionProps {
     title: string;
     defaultOpen?: boolean;
@@ -238,8 +243,8 @@ export default function SettingsPage() {
             </AccordionSection>
 
             {/* Collapsed sections */}
-            <AccordionSection title="Staff">
-                <p className="text-sm text-muted-foreground">Staff configuration options coming soon.</p>
+            <AccordionSection title="Staff Rates" defaultOpen>
+                <StaffRatesEditor />
             </AccordionSection>
 
             <AccordionSection title="SMS Campaigns">
