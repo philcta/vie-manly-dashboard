@@ -389,7 +389,7 @@ def upsert_to_supabase(rows):
     if not rows:
         return 0
     req = urllib.request.Request(
-        f"{SUPA_URL}/rest/v1/staff_shifts?on_conflict=shift_date,team_member_id,job_title",
+        f"{SUPA_URL}/rest/v1/staff_shifts?on_conflict=shift_date,team_member_id,job_title,scheduled_start",
         data=json.dumps(rows).encode(),
         headers=supa_headers,
         method='POST'
