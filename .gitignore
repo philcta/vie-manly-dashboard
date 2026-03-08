@@ -62,5 +62,6 @@ logs/
 *.txt
 !requirements.txt
 !requirements.cloud.txt
+!requirements.sync.txt
 debug_*.txt
 *.dump

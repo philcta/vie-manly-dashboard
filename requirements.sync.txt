@@ -1,0 +1,15 @@
+# === Minimal dependencies for Square → Supabase sync (GitHub Actions) ===
+# This file contains ONLY what's needed for the sync job, not the full dashboard.
+
+# Square API client
+squareup>=40.0.0,<50.0.0
+
+# Data processing
+pandas
+numpy
+
+# Environment variables
+python-dotenv
+
+# Streamlit (needed for db_supabase.py config import — minimal usage)
+streamlit>=1.30.0
