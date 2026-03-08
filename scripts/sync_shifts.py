@@ -167,6 +167,8 @@ def create_rate_stubs(missing_set, names):
     DAY_TYPES = ['weekday', 'saturday', 'sunday', 'public_holiday']
     stubs = []
     for name, job_title, mid in missing_set:
+        if not name or not mid:  # skip ghost entries with no name/id
+            continue
         for dt in DAY_TYPES:
             stubs.append({
                 "team_member_id": mid,
