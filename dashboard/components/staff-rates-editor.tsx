@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
-import { formatCurrency } from "@/lib/format";
 
 interface RateRow {
     staffName: string;
@@ -12,6 +11,7 @@ interface RateRow {
     saturday: number;
     sunday: number;
     publicHoliday: number;
+    isActive: boolean;
 }
 
 interface RawRate {
@@ -21,6 +21,7 @@ interface RawRate {
     job_title: string;
     day_type: string;
     hourly_rate: number;
+    is_active: boolean;
 }
 
 /** Short label for common job titles */
@@ -38,6 +39,7 @@ export default function StaffRatesEditor() {
     const [saving, setSaving] = useState(false);
     const [dirty, setDirty] = useState(false);
     const [saveMsg, setSaveMsg] = useState("");
+    const [filter, setFilter] = useState<"all" | "active" | "inactive">("active");
 
     const loadRates = useCallback(async () => {
         setLoading(true);
@@ -63,6 +65,7 @@ export default function StaffRatesEditor() {
             saturday: number;
             sunday: number;
             publicHoliday: number;
+            isActive: boolean;
         }>();
 
         for (const r of raw) {
@@ -77,6 +80,7 @@ export default function StaffRatesEditor() {
                     saturday: 0,
                     sunday: 0,
                     publicHoliday: 0,
+                    isActive: r.is_active !== false,
                 });
             }
             const entry = map.get(key)!;
@@ -107,6 +111,7 @@ export default function StaffRatesEditor() {
             saturday: e.saturday,
             sunday: e.sunday,
             publicHoliday: e.publicHoliday,
+            isActive: e.isActive,
         }));
 
         setRows(pivoted.sort((a, b) => a.staffName.localeCompare(b.staffName)));
@@ -118,7 +123,7 @@ export default function StaffRatesEditor() {
         loadRates();
     }, [loadRates]);
 
-    const updateRate = (idx: number, field: keyof RateRow, value: number) => {
+    const updateRate = (idx: number, field: keyof RateRow, value: number | boolean) => {
         setRows((prev) => {
             const updated = [...prev];
             updated[idx] = { ...updated[idx], [field]: value };
@@ -128,28 +133,35 @@ export default function StaffRatesEditor() {
         setSaveMsg("");
     };
 
+    const toggleActive = async (idx: number) => {
+        const row = rows[idx];
+        const newActive = !row.isActive;
+
+        // Optimistic update
+        updateRate(idx, "isActive", newActive);
+
+        // Immediately persist to DB
+        const { error } = await supabase
+            .from("staff_rates")
+            .update({ is_active: newActive })
+            .eq("staff_name", row.staffName);
+
+        if (error) {
+            console.error("Toggle error:", error);
+            updateRate(idx, "isActive", !newActive); // revert
+        }
+    };
+
     const saveRates = async () => {
         setSaving(true);
         setSaveMsg("");
 
-        // Build upsert records — one per (staff_name, job_title) combo + day_type
-        // Since we merged titles, we update ALL titles for each staff member
-        // with the same rate values
-        const upsertRows: {
-            team_member_id: string;
-            staff_name: string;
-            job_title: string;
-            day_type: string;
-            hourly_rate: number;
-        }[] = [];
-
-        // First, load current raw data to know which job_titles exist per person
+        // Load current raw data to know which job_titles exist per person
         const { data: rawData } = await supabase
             .from("staff_rates")
             .select("team_member_id, staff_name, job_title, day_type")
             .order("staff_name");
 
-        // Build a map of staff_name -> set of {team_member_id, job_title}
         const staffJobs = new Map<string, { teamMemberId: string; jobTitles: Set<string> }>();
         for (const r of rawData || []) {
             if (!r.staff_name) continue;
@@ -158,6 +170,15 @@ export default function StaffRatesEditor() {
             }
             staffJobs.get(r.staff_name)!.jobTitles.add(r.job_title);
         }
+
+        const upsertRows: {
+            team_member_id: string;
+            staff_name: string;
+            job_title: string;
+            day_type: string;
+            hourly_rate: number;
+            is_active: boolean;
+        }[] = [];
 
         for (const row of rows) {
             const jobs = staffJobs.get(row.staffName);
@@ -178,12 +199,12 @@ export default function StaffRatesEditor() {
                         job_title: jt,
                         day_type: dr.day_type,
                         hourly_rate: dr.hourly_rate,
+                        is_active: row.isActive,
                     });
                 }
             }
         }
 
-        // Upsert in batches
         let ok = true;
         for (let i = 0; i < upsertRows.length; i += 200) {
             const batch = upsertRows.slice(i, i + 200);
@@ -207,17 +228,47 @@ export default function StaffRatesEditor() {
     };
 
     if (loading) {
-        return <p className="text-sm text-muted-foreground py-4">Loading staff rates...</p>;
+        return (
+            <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-olive border-t-transparent" />
+                Loading staff rates...
+            </div>
+        );
     }
+
+    const activeCount = rows.filter((r) => r.isActive).length;
+    const inactiveCount = rows.filter((r) => !r.isActive).length;
+
+    const filtered = rows.filter((r) => {
+        if (filter === "all") return true;
+        if (filter === "active") return r.isActive;
+        return !r.isActive;
+    });
 
     const cellInput = "w-20 px-2 py-1.5 text-sm text-right border border-border rounded-lg tabular-nums bg-white focus:outline-none focus:ring-2 focus:ring-olive/20 focus:border-olive transition-colors";
 
     return (
-        <div>
-            <div className="flex items-center justify-between mb-3">
-                <p className="text-xs text-muted-foreground">
-                    {rows.length} staff · Rates include 12% superannuation (except under-18)
-                </p>
+        <div className="space-y-4">
+            {/* Filter pills + save */}
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    {([
+                        { value: "all" as const, label: `All (${rows.length})` },
+                        { value: "active" as const, label: `Active (${activeCount})` },
+                        { value: "inactive" as const, label: `Inactive (${inactiveCount})` },
+                    ]).map((pill) => (
+                        <button
+                            key={pill.value}
+                            onClick={() => setFilter(pill.value)}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors cursor-pointer ${filter === pill.value
+                                    ? "bg-olive text-white"
+                                    : "bg-olive-surface text-text-body hover:bg-olive/10"
+                                }`}
+                        >
+                            {pill.label}
+                        </button>
+                    ))}
+                </div>
                 <div className="flex items-center gap-3">
                     {saveMsg && (
                         <span className="text-xs font-medium text-muted-foreground">{saveMsg}</span>
@@ -235,74 +286,132 @@ export default function StaffRatesEditor() {
                 </div>
             </div>
 
-            <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                    <thead>
-                        <tr className="text-left text-xs font-medium uppercase tracking-wider text-muted-foreground border-b border-border">
-                            <th className="pb-2.5 pr-4">Name</th>
-                            <th className="pb-2.5 pr-4">Role</th>
-                            <th className="pb-2.5 pr-2 text-right">Weekday</th>
-                            <th className="pb-2.5 pr-2 text-right">Saturday</th>
-                            <th className="pb-2.5 pr-2 text-right">Sunday</th>
-                            <th className="pb-2.5 text-right">Public Holiday</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows.map((row, i) => (
-                            <tr
-                                key={row.staffName}
-                                className="border-b border-border/50 hover:bg-olive-surface/30 transition-colors"
-                            >
-                                <td className="py-2 pr-4 font-medium text-foreground whitespace-nowrap">
-                                    {row.staffName}
-                                </td>
-                                <td className="py-2 pr-4 text-muted-foreground whitespace-nowrap">
-                                    {row.jobTitle}
-                                </td>
-                                <td className="py-1.5 pr-2 text-right">
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={row.weekday || ""}
-                                        onChange={(e) => updateRate(i, "weekday", Number(e.target.value))}
-                                        className={cellInput}
-                                        placeholder="0.00"
-                                    />
-                                </td>
-                                <td className="py-1.5 pr-2 text-right">
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={row.saturday || ""}
-                                        onChange={(e) => updateRate(i, "saturday", Number(e.target.value))}
-                                        className={cellInput}
-                                        placeholder="0.00"
-                                    />
-                                </td>
-                                <td className="py-1.5 pr-2 text-right">
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={row.sunday || ""}
-                                        onChange={(e) => updateRate(i, "sunday", Number(e.target.value))}
-                                        className={cellInput}
-                                        placeholder="0.00"
-                                    />
-                                </td>
-                                <td className="py-1.5 text-right">
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={row.publicHoliday || ""}
-                                        onChange={(e) => updateRate(i, "publicHoliday", Number(e.target.value))}
-                                        className={cellInput}
-                                        placeholder="0.00"
-                                    />
-                                </td>
+            {/* Table */}
+            <div className="rounded-lg border border-border overflow-hidden">
+                <div className="max-h-[480px] overflow-y-auto">
+                    <table className="w-full text-sm">
+                        <thead className="sticky top-0 z-10">
+                            <tr className="bg-[#FAFAF8] text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                                <th className="text-left px-4 py-2.5">Name</th>
+                                <th className="text-left px-4 py-2.5">Role</th>
+                                <th className="text-center px-2 py-2.5 w-32">Status</th>
+                                <th className="text-right px-2 py-2.5 w-24">Weekday</th>
+                                <th className="text-right px-2 py-2.5 w-24">Saturday</th>
+                                <th className="text-right px-2 py-2.5 w-24">Sunday</th>
+                                <th className="text-right px-4 py-2.5 w-28">Public Holiday</th>
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {filtered.map((row, i) => (
+                                <tr
+                                    key={row.staffName}
+                                    className={`border-t border-border transition-colors ${!row.isActive
+                                            ? "opacity-50 bg-[#FAFAF8]/50"
+                                            : i % 2 === 0
+                                                ? "bg-white"
+                                                : "bg-[#FAFAF8]/50"
+                                        } hover:bg-olive-surface/30`}
+                                >
+                                    <td className="px-4 py-2 font-medium text-foreground whitespace-nowrap">
+                                        {row.staffName}
+                                    </td>
+                                    <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
+                                        {row.jobTitle}
+                                    </td>
+                                    <td className="px-2 py-2">
+                                        <div className="flex justify-center">
+                                            <div className="inline-flex rounded-full border border-border overflow-hidden">
+                                                <button
+                                                    onClick={() => {
+                                                        const idx = rows.findIndex((r) => r.staffName === row.staffName);
+                                                        if (idx >= 0 && !row.isActive) toggleActive(idx);
+                                                    }}
+                                                    className={`px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${row.isActive
+                                                            ? "bg-olive text-white"
+                                                            : "text-text-body hover:bg-olive-surface"
+                                                        }`}
+                                                >
+                                                    Active
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        const idx = rows.findIndex((r) => r.staffName === row.staffName);
+                                                        if (idx >= 0 && row.isActive) toggleActive(idx);
+                                                    }}
+                                                    className={`px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${!row.isActive
+                                                            ? "bg-coral text-white"
+                                                            : "text-text-body hover:bg-olive-surface"
+                                                        }`}
+                                                >
+                                                    Inactive
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right">
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={row.weekday || ""}
+                                            onChange={(e) => {
+                                                const idx = rows.findIndex((r) => r.staffName === row.staffName);
+                                                if (idx >= 0) updateRate(idx, "weekday", Number(e.target.value));
+                                            }}
+                                            className={cellInput}
+                                            placeholder="0.00"
+                                        />
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right">
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={row.saturday || ""}
+                                            onChange={(e) => {
+                                                const idx = rows.findIndex((r) => r.staffName === row.staffName);
+                                                if (idx >= 0) updateRate(idx, "saturday", Number(e.target.value));
+                                            }}
+                                            className={cellInput}
+                                            placeholder="0.00"
+                                        />
+                                    </td>
+                                    <td className="px-2 py-1.5 text-right">
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={row.sunday || ""}
+                                            onChange={(e) => {
+                                                const idx = rows.findIndex((r) => r.staffName === row.staffName);
+                                                if (idx >= 0) updateRate(idx, "sunday", Number(e.target.value));
+                                            }}
+                                            className={cellInput}
+                                            placeholder="0.00"
+                                        />
+                                    </td>
+                                    <td className="px-4 py-1.5 text-right">
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={row.publicHoliday || ""}
+                                            onChange={(e) => {
+                                                const idx = rows.findIndex((r) => r.staffName === row.staffName);
+                                                if (idx >= 0) updateRate(idx, "publicHoliday", Number(e.target.value));
+                                            }}
+                                            className={cellInput}
+                                            placeholder="0.00"
+                                        />
+                                    </td>
+                                </tr>
+                            ))}
+                            {filtered.length === 0 && (
+                                <tr>
+                                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground text-sm">
+                                        No staff match this filter.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     );

@@ -104,8 +104,8 @@ export default function CategoryClassification() {
                         key={pill.value}
                         onClick={() => setFilter(pill.value)}
                         className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors cursor-pointer ${filter === pill.value
-                                ? "bg-olive text-white"
-                                : "bg-olive-surface text-text-body hover:bg-olive/10"
+                            ? "bg-olive text-white"
+                            : "bg-olive-surface text-text-body hover:bg-olive/10"
                             }`}
                     >
                         {pill.label}
@@ -115,72 +115,74 @@ export default function CategoryClassification() {
 
             {/* Category list */}
             <div className="rounded-lg border border-border overflow-hidden">
-                <table className="w-full text-sm">
-                    <thead>
-                        <tr className="bg-[#FAFAF8] text-xs text-text-muted uppercase tracking-wider">
-                            <th className="text-left px-4 py-2.5 font-medium">Category</th>
-                            <th className="text-center px-4 py-2.5 font-medium w-40">Classification</th>
-                            <th className="text-right px-4 py-2.5 font-medium w-28">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filtered.map((m, i) => (
-                            <tr
-                                key={m.category}
-                                className={`border-t border-border transition-colors ${!m.assigned_at ? "bg-warning/5" : i % 2 === 0 ? "bg-white" : "bg-[#FAFAF8]/50"
-                                    }`}
-                            >
-                                <td className="px-4 py-2.5 text-text-body font-medium">
-                                    {m.category}
-                                </td>
-                                <td className="px-4 py-2.5">
-                                    <div className="flex justify-center">
-                                        <div className="inline-flex rounded-full border border-border overflow-hidden">
-                                            <button
-                                                onClick={() => handleToggle(m.category, "Cafe")}
-                                                disabled={saving === m.category}
-                                                className={`px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${m.side === "Cafe"
+                <div className="max-h-[420px] overflow-y-auto">
+                    <table className="w-full text-sm">
+                        <thead className="sticky top-0 z-10">
+                            <tr className="bg-[#FAFAF8] text-xs text-text-muted uppercase tracking-wider">
+                                <th className="text-left px-4 py-2.5 font-medium">Category</th>
+                                <th className="text-center px-4 py-2.5 font-medium w-40">Classification</th>
+                                <th className="text-right px-4 py-2.5 font-medium w-28">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filtered.map((m, i) => (
+                                <tr
+                                    key={m.category}
+                                    className={`border-t border-border transition-colors ${!m.assigned_at ? "bg-warning/5" : i % 2 === 0 ? "bg-white" : "bg-[#FAFAF8]/50"
+                                        }`}
+                                >
+                                    <td className="px-4 py-2.5 text-text-body font-medium">
+                                        {m.category}
+                                    </td>
+                                    <td className="px-4 py-2.5">
+                                        <div className="flex justify-center">
+                                            <div className="inline-flex rounded-full border border-border overflow-hidden">
+                                                <button
+                                                    onClick={() => handleToggle(m.category, "Cafe")}
+                                                    disabled={saving === m.category}
+                                                    className={`px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${m.side === "Cafe"
                                                         ? "bg-olive text-white"
                                                         : "text-text-body hover:bg-olive-surface"
-                                                    }`}
-                                            >
-                                                Cafe
-                                            </button>
-                                            <button
-                                                onClick={() => handleToggle(m.category, "Retail")}
-                                                disabled={saving === m.category}
-                                                className={`px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${m.side === "Retail"
+                                                        }`}
+                                                >
+                                                    Cafe
+                                                </button>
+                                                <button
+                                                    onClick={() => handleToggle(m.category, "Retail")}
+                                                    disabled={saving === m.category}
+                                                    className={`px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${m.side === "Retail"
                                                         ? "bg-olive text-white"
                                                         : "text-text-body hover:bg-olive-surface"
-                                                    }`}
-                                            >
-                                                Retail
-                                            </button>
+                                                        }`}
+                                                >
+                                                    Retail
+                                                </button>
+                                            </div>
                                         </div>
-                                    </div>
-                                </td>
-                                <td className="px-4 py-2.5 text-right">
-                                    {saving === m.category ? (
-                                        <span className="text-xs text-muted-foreground">Saving...</span>
-                                    ) : !m.assigned_at ? (
-                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-warning/10 text-warning">
-                                            New
-                                        </span>
-                                    ) : (
-                                        <span className="text-xs text-muted-foreground">✓</span>
-                                    )}
-                                </td>
-                            </tr>
-                        ))}
-                        {filtered.length === 0 && (
-                            <tr>
-                                <td colSpan={3} className="px-4 py-8 text-center text-muted-foreground text-sm">
-                                    No categories match this filter.
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right">
+                                        {saving === m.category ? (
+                                            <span className="text-xs text-muted-foreground">Saving...</span>
+                                        ) : !m.assigned_at ? (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-warning/10 text-warning">
+                                                New
+                                            </span>
+                                        ) : (
+                                            <span className="text-xs text-muted-foreground">✓</span>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))}
+                            {filtered.length === 0 && (
+                                <tr>
+                                    <td colSpan={3} className="px-4 py-8 text-center text-muted-foreground text-sm">
+                                        No categories match this filter.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     );
