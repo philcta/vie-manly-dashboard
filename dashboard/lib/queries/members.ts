@@ -297,6 +297,7 @@ export async function fetchMemberRevenueSeries(
         )
         .gte("date", startDate)
         .lte("date", endDate)
+        .eq("is_closed", false)
         .order("date", { ascending: true });
 
     if (error) throw error;

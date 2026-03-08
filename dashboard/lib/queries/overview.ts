@@ -27,6 +27,7 @@ export interface DailyStats {
     non_member_net_sales: number;
     member_tx_ratio: number;
     member_sales_ratio: number;
+    is_closed: boolean;
 }
 
 export interface HourlyData {
@@ -44,7 +45,8 @@ export interface CategoryDailyData {
     transaction_count: number;
 }
 
-/** Fetch daily store stats for a date range */
+/** Fetch daily store stats for a date range.
+ *  Excludes days flagged as is_closed (public holidays, etc.) */
 export async function fetchDailyStats(
     startDate: string,
     endDate: string
@@ -54,6 +56,7 @@ export async function fetchDailyStats(
         .select("*")
         .gte("date", startDate)
         .lte("date", endDate)
+        .eq("is_closed", false)
         .order("date", { ascending: true });
 
     if (error) throw error;
@@ -177,12 +180,14 @@ export async function fetchDailyLabour(
  * Handles single day or range.
  */
 export function aggregateStats(rows: DailyStats[]) {
-    const totalNetSales = rows.reduce((s, r) => s + r.total_net_sales, 0);
-    const totalGrossSales = rows.reduce((s, r) => s + (r.total_gross_sales || 0), 0);
-    const totalTransactions = rows.reduce((s, r) => s + r.total_transactions, 0);
-    const totalItems = rows.reduce((s, r) => s + r.total_items, 0);
-    const memberTx = rows.reduce((s, r) => s + r.member_transactions, 0);
-    const memberSales = rows.reduce((s, r) => s + r.member_net_sales, 0);
+    // Safety: filter out any closed days that weren't caught at query level
+    const open = rows.filter(r => !r.is_closed);
+    const totalNetSales = open.reduce((s, r) => s + r.total_net_sales, 0);
+    const totalGrossSales = open.reduce((s, r) => s + (r.total_gross_sales || 0), 0);
+    const totalTransactions = open.reduce((s, r) => s + r.total_transactions, 0);
+    const totalItems = open.reduce((s, r) => s + r.total_items, 0);
+    const memberTx = open.reduce((s, r) => s + r.member_transactions, 0);
+    const memberSales = open.reduce((s, r) => s + r.member_net_sales, 0);
     const avgSale = totalTransactions > 0 ? totalNetSales / totalTransactions : 0;
 
     return {
