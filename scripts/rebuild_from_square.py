@@ -314,14 +314,11 @@ def main():
 
     catalog_map = build_catalog_map()
     
-    # Start from store opening (Aug 2025) or earlier?
-    # User mentioned Aug 2025. I will start from 2024-07-01 to be safe and cover all data.
-    start_date = datetime(2024, 7, 1, tzinfo=SYDNEY_TZ)
+    # Start from July 2025 (store data starts around then)
+    start_date = datetime(2025, 7, 1, tzinfo=SYDNEY_TZ)
     end_date = datetime.now(SYDNEY_TZ)
     
-    if not truncate_transactions():
-        print("Truncate failed. Aborting for safety.")
-        return
+    # Table already truncated via SQL — skip truncate_transactions()
 
     current = start_date
     total_rows = 0

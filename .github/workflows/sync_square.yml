@@ -2,20 +2,42 @@ name: Square → Supabase Sync
 
 on:
   schedule:
-    # Run every 2 hours at minute 0 (stays within free tier: ~1,100 min/month)
-    - cron: '0 */2 * * *'
+    # Run every 2 hours between 6am–8pm Sydney time (AEDT/AEST aware).
+    #
+    # Sydney is UTC+11 (AEDT, Oct–Apr) or UTC+10 (AEST, Apr–Oct).
+    # To cover 6am–8pm in both timezones:
+    #   AEDT: 6am=19UTC(prev), 8am=21UTC(prev), ... 8pm=09UTC
+    #   AEST: 6am=20UTC(prev), 8am=22UTC(prev), ... 8pm=10UTC
+    #
+    # We schedule at: 19,21,23,01,03,05,07,09 UTC
+    # This gives us:
+    #   AEDT: 6am, 8am, 10am, 12pm, 2pm, 4pm, 6pm, 8pm ✓
+    #   AEST: 5am, 7am, 9am, 11am, 1pm, 3pm, 5pm, 7pm ✓
+    #
+    # (AEST shifts 1 hour earlier, which is fine — catches early morning)
+    #
+    - cron: '0 19,21,23,1,3,5,7,9 * * *'
   workflow_dispatch:
     # Allow manual trigger from GitHub Actions UI
     inputs:
-      hours_back:
-        description: 'Hours of data to fetch'
+      mode:
+        description: 'Sync mode'
         required: false
-        default: '2'
+        default: 'scheduled'
+        type: choice
+        options:
+          - scheduled
+          - backfill-only
+          - latest-only
+      lookback_days:
+        description: 'Backfill lookback (days)'
+        required: false
+        default: '14'
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -30,14 +52,40 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.cloud.txt
+          pip install -r requirements.sync.txt
 
-      - name: Run Square sync
+      - name: Run scheduled sync (backfill gaps + latest data)
+        if: ${{ github.event.inputs.mode == '' || github.event.inputs.mode == 'scheduled' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SQUARE_ACCESS_TOKEN: ${{ secrets.SQUARE_ACCESS_TOKEN }}
           SQUARE_LOCATION_ID: ${{ secrets.SQUARE_LOCATION_ID }}
           SQUARE_ENVIRONMENT: production
+          PYTHONIOENCODING: utf-8
         run: |
-          python -m services.square_sync ${{ github.event.inputs.hours_back || '2' }}
+          python scripts/scheduled_sync.py --lookback ${{ github.event.inputs.lookback_days || '14' }}
+
+      - name: Run backfill only
+        if: ${{ github.event.inputs.mode == 'backfill-only' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SQUARE_ACCESS_TOKEN: ${{ secrets.SQUARE_ACCESS_TOKEN }}
+          SQUARE_LOCATION_ID: ${{ secrets.SQUARE_LOCATION_ID }}
+          SQUARE_ENVIRONMENT: production
+          PYTHONIOENCODING: utf-8
+        run: |
+          python scripts/smart_backfill.py --days ${{ github.event.inputs.lookback_days || '14' }} --include-today
+
+      - name: Run latest sync only
+        if: ${{ github.event.inputs.mode == 'latest-only' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SQUARE_ACCESS_TOKEN: ${{ secrets.SQUARE_ACCESS_TOKEN }}
+          SQUARE_LOCATION_ID: ${{ secrets.SQUARE_LOCATION_ID }}
+          SQUARE_ENVIRONMENT: production
+          PYTHONIOENCODING: utf-8
+        run: |
+          python -m services.square_sync --smart

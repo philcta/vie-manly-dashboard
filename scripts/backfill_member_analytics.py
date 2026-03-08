@@ -50,16 +50,17 @@ def load_all_transactions():
     print("Loading all transactions...")
     all_rows = []
     offset = 0
+    page_size = 5000
     while True:
         data = supa_get(
             f"transactions?select=customer_id,date,net_sales,qty,transaction_id"
-            f"&limit=10000&offset={offset}"
+            f"&order=id&limit={page_size}&offset={offset}"
         )
         all_rows.extend(data)
         print(f"  ...loaded {len(all_rows)} rows", end="\r")
-        if len(data) < 10000:
+        if len(data) < page_size:
             break
-        offset += 10000
+        offset += page_size
     print(f"  Loaded {len(all_rows)} transactions")
     return all_rows
 

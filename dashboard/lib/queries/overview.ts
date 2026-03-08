@@ -1,0 +1,228 @@
+/**
+ * Overview page data queries.
+ * Fetches from: daily_store_stats, transactions, daily_item_summary, staff_shifts
+ *
+ * Formulas Reference (docs/formulas_reference.md):
+ * - Net Sales: SUM(net_sales) from transactions for [period]
+ * - Transactions: COUNT(DISTINCT transaction_id)
+ * - Gross Sales: SUM(gross_sales)
+ * - Average Sale: Net Sales / Transactions
+ * - Labour Cost: SUM(labour_cost) from staff_shifts
+ * - Labour Cost vs Sales Profit %: Labour Cost / Net Sales × 100
+ * - Hourly bars: SUM(net_sales) grouped by HOUR(datetime)
+ */
+import { supabase } from "@/lib/supabase";
+import { classifySide } from "@/lib/category-rules";
+
+export interface DailyStats {
+    date: string;
+    total_transactions: number;
+    total_net_sales: number;
+    total_gross_sales: number;
+    total_items: number;
+    total_unique_customers: number;
+    member_transactions: number;
+    member_net_sales: number;
+    non_member_transactions: number;
+    non_member_net_sales: number;
+    member_tx_ratio: number;
+    member_sales_ratio: number;
+}
+
+export interface HourlyData {
+    hour: number;
+    net_sales: number;
+    transactions: number;
+}
+
+export interface CategoryDailyData {
+    date: string;
+    category: string;
+    total_net_sales: number;
+    total_gross_sales: number;
+    total_qty: number;
+    transaction_count: number;
+}
+
+/** Fetch daily store stats for a date range */
+export async function fetchDailyStats(
+    startDate: string,
+    endDate: string
+): Promise<DailyStats[]> {
+    const { data, error } = await supabase
+        .from("daily_store_stats")
+        .select("*")
+        .gte("date", startDate)
+        .lte("date", endDate)
+        .order("date", { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+}
+
+/** Fetch a single day's aggregated stats */
+export async function fetchDayStats(date: string): Promise<DailyStats | null> {
+    const { data, error } = await supabase
+        .from("daily_store_stats")
+        .select("*")
+        .eq("date", date)
+        .single();
+
+    if (error && error.code !== "PGRST116") throw error;
+    return data;
+}
+
+/**
+ * Fetch hourly breakdown from transactions for a specific date.
+ * Groups by hour of datetime.
+ */
+export async function fetchHourlyData(date: string): Promise<HourlyData[]> {
+    // Query transactions using the date text field (avoids full table scan)
+    const { data: txns, error: txErr } = await supabase
+        .from("transactions")
+        .select("datetime, net_sales, transaction_id")
+        .eq("date", date)
+        .limit(2000);
+
+    if (txErr) {
+        console.error("Hourly data query failed:", txErr);
+        return [];
+    }
+
+    const hourMap = new Map<number, { net_sales: number; txIds: Set<string> }>();
+    for (const t of txns || []) {
+        if (!t.datetime) continue;
+        const hour = new Date(t.datetime).getHours();
+        if (!hourMap.has(hour)) {
+            hourMap.set(hour, { net_sales: 0, txIds: new Set() });
+        }
+        const entry = hourMap.get(hour)!;
+        entry.net_sales += t.net_sales || 0;
+        if (t.transaction_id) entry.txIds.add(t.transaction_id);
+    }
+
+    return Array.from(hourMap.entries())
+        .map(([hour, val]) => ({
+            hour,
+            net_sales: Math.round(val.net_sales * 100) / 100,
+            transactions: val.txIds.size,
+        }))
+        .sort((a, b) => a.hour - b.hour);
+}
+
+/** Fetch daily category totals for Cafe vs Retail charts.
+ *  Uses an RPC that pre-aggregates by date+category in SQL,
+ *  avoiding Supabase's default 1000-row limit on long date ranges. */
+export async function fetchCategoryDaily(
+    startDate: string,
+    endDate: string
+): Promise<CategoryDailyData[]> {
+    const { data, error } = await supabase
+        .rpc("get_category_daily", {
+            start_date: startDate,
+            end_date: endDate,
+        });
+
+    if (error) throw error;
+    return (data || []) as CategoryDailyData[];
+}
+
+/** Fetch total labour cost for a date range from staff_shifts */
+export async function fetchLabourCost(
+    startDate: string,
+    endDate: string
+): Promise<number> {
+    const { data, error } = await supabase
+        .from("staff_shifts")
+        .select("labour_cost")
+        .gte("shift_date", startDate)
+        .lte("shift_date", endDate);
+
+    if (error) throw error;
+    return (data || []).reduce((sum, s) => sum + (Number(s.labour_cost) || 0), 0);
+}
+
+export interface DailyLabour {
+    date: string;
+    labour_cost: number;
+}
+
+/** Fetch daily labour costs for a date range, grouped by day */
+export async function fetchDailyLabour(
+    startDate: string,
+    endDate: string
+): Promise<DailyLabour[]> {
+    const { data, error } = await supabase
+        .from("staff_shifts")
+        .select("shift_date, labour_cost")
+        .gte("shift_date", startDate)
+        .lte("shift_date", endDate);
+
+    if (error) throw error;
+
+    // Group by date
+    const map = new Map<string, number>();
+    for (const row of data || []) {
+        const d = row.shift_date;
+        map.set(d, (map.get(d) || 0) + (Number(row.labour_cost) || 0));
+    }
+
+    return Array.from(map.entries())
+        .map(([date, labour_cost]) => ({ date, labour_cost: Math.round(labour_cost * 100) / 100 }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Aggregate period KPIs from daily_store_stats.
+ * Handles single day or range.
+ */
+export function aggregateStats(rows: DailyStats[]) {
+    const totalNetSales = rows.reduce((s, r) => s + r.total_net_sales, 0);
+    const totalGrossSales = rows.reduce((s, r) => s + (r.total_gross_sales || 0), 0);
+    const totalTransactions = rows.reduce((s, r) => s + r.total_transactions, 0);
+    const totalItems = rows.reduce((s, r) => s + r.total_items, 0);
+    const memberTx = rows.reduce((s, r) => s + r.member_transactions, 0);
+    const memberSales = rows.reduce((s, r) => s + r.member_net_sales, 0);
+    const avgSale = totalTransactions > 0 ? totalNetSales / totalTransactions : 0;
+
+    return {
+        netSales: totalNetSales,
+        grossSales: totalGrossSales,
+        transactions: totalTransactions,
+        avgSale,
+        totalItems,
+        memberTx,
+        memberSales,
+        memberTxRatio: totalTransactions > 0 ? (memberTx / totalTransactions) * 100 : 0,
+        memberSalesRatio: totalNetSales > 0 ? (memberSales / totalNetSales) * 100 : 0,
+    };
+}
+
+/**
+ * Aggregate category data for period KPIs.
+ * The RPC returns rows pre-classified as "Cafe" or "Retail".
+ */
+export function aggregateCategoryStats(rows: CategoryDailyData[]) {
+    let cafeNetSales = 0;
+    let retailNetSales = 0;
+    let cafeGrossSales = 0;
+    let retailGrossSales = 0;
+
+    for (const r of rows) {
+        if (r.category === "Cafe") {
+            cafeNetSales += r.total_net_sales;
+            cafeGrossSales += r.total_gross_sales;
+        } else {
+            retailNetSales += r.total_net_sales;
+            retailGrossSales += r.total_gross_sales;
+        }
+    }
+
+    return {
+        cafeNetSales,
+        retailNetSales,
+        cafeGrossSales,
+        retailGrossSales,
+    };
+}
+

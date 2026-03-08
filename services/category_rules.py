@@ -13,5 +13,6 @@ def is_bar_category(cat: str) -> bool:
             "Wraps & Salads",
             "Breakfast Bowls",
             "Chia Bowls",
+            "To-Go Bites",
         }
     )

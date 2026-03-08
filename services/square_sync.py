@@ -198,7 +198,7 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
             query={
                 "filter": {
                     "date_time_filter": {
-                        "created_at": {
+                        "closed_at": {
                             "start_at": start_time.isoformat(),
                             "end_at": now.isoformat(),
                         }
@@ -208,7 +208,7 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
                     }
                 },
                 "sort": {
-                    "sort_field": "CREATED_AT",
+                    "sort_field": "CLOSED_AT",
                     "sort_order": "ASC"
                 }
             },
@@ -233,7 +233,7 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
     
     for order in all_orders:
         order_id = order.id or ""
-        created_at = order.created_at or ""
+        closed_at = order.closed_at or order.created_at or ""
         customer_id = order.customer_id or ""
 
         # Parse tenders (payment info)
@@ -253,12 +253,12 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
             qty = float(item.quantity or "0")
 
             # Amounts are in cents (smallest currency unit) — v44 uses pydantic Money objects
-            base_price = int(item.base_price_money.amount if item.base_price_money else 0) / 100
             total_money = int(item.total_money.amount if item.total_money else 0) / 100
             total_tax = int(item.total_tax_money.amount if item.total_tax_money else 0) / 100
             total_discount = int(item.total_discount_money.amount if item.total_discount_money else 0) / 100
 
-            gross_sales = base_price * qty
+            # Use Square's gross_sales_money for accuracy (matches their dashboard)
+            gross_sales = int(item.gross_sales_money.amount if item.gross_sales_money else 0) / 100
             net_sales = total_money - total_tax
 
             # Parse modifiers
@@ -280,9 +280,9 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
             else:
                 unmatched += 1
 
-            # Parse datetime
+            # Parse datetime — use closed_at to match Square's "Bills Closed" logic
             try:
-                dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                dt = datetime.fromisoformat(closed_at.replace("Z", "+00:00"))
                 # Convert to Sydney time
                 from zoneinfo import ZoneInfo
                 dt_local = dt.astimezone(ZoneInfo("Australia/Sydney"))
@@ -292,7 +292,7 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
             except Exception:
                 date_str = ""
                 time_str = ""
-                datetime_str = created_at
+                datetime_str = closed_at
 
             rows.append({
                 "Datetime": datetime_str,
@@ -372,18 +372,27 @@ def sync_inventory() -> pd.DataFrame:
             price_money = var_data.price_money
             price = int(price_money.amount) / 100 if price_money and price_money.amount else 0
 
-            # Unit cost (if available) — vendor infos may not be in v44 SDK
+            # Unit cost — try direct default_unit_cost first, then vendor infos
             unit_cost = 0
             try:
-                vendor_infos = getattr(var_data, 'item_variation_vendor_infos', None) or []
-                if vendor_infos:
-                    vi = vendor_infos[0]
-                    vi_data = vi.item_variation_vendor_info_data if hasattr(vi, 'item_variation_vendor_info_data') else vi.get('item_variation_vendor_info_data', {})
-                    if vi_data:
-                        pm = vi_data.price_money if hasattr(vi_data, 'price_money') else vi_data.get('price_money', {})
-                        if pm:
-                            amt = pm.amount if hasattr(pm, 'amount') else pm.get('amount', 0)
-                            unit_cost = int(amt or 0) / 100
+                # Direct field on variation (most reliable)
+                duc = getattr(var_data, 'default_unit_cost', None)
+                if duc:
+                    amt = duc.amount if hasattr(duc, 'amount') else (duc.get('amount', 0) if isinstance(duc, dict) else 0)
+                    if amt:
+                        unit_cost = int(amt) / 100
+
+                # Fallback: vendor info price
+                if unit_cost == 0:
+                    vendor_infos = getattr(var_data, 'item_variation_vendor_infos', None) or []
+                    if vendor_infos:
+                        vi = vendor_infos[0]
+                        vi_data = vi.item_variation_vendor_info_data if hasattr(vi, 'item_variation_vendor_info_data') else vi.get('item_variation_vendor_info_data', {})
+                        if vi_data:
+                            pm = vi_data.price_money if hasattr(vi_data, 'price_money') else vi_data.get('price_money', {})
+                            if pm:
+                                amt = pm.amount if hasattr(pm, 'amount') else pm.get('amount', 0)
+                                unit_cost = int(amt or 0) / 100
             except Exception:
                 pass
 
@@ -594,6 +603,52 @@ def _update_daily_summaries(tx_df: pd.DataFrame):
     print(f"✅ Updated daily_item_summary: {total_upserted} rows for {len(dates)} date(s)")
 
 
+def _register_new_categories(tx_df: pd.DataFrame):
+    """Auto-register any new categories seen in synced transactions.
+    
+    Inserts new categories into category_mappings with side='Retail' (default).
+    New categories will be flagged as unassigned (assigned_at=NULL) so the
+    dashboard Settings page can show a notification to classify them.
+    """
+    from services.db_supabase import get_supabase_client
+
+    if tx_df.empty or "Category" not in tx_df.columns:
+        return
+
+    # Get unique non-empty categories from the synced data
+    categories = tx_df["Category"].dropna().unique().tolist()
+    categories = [c for c in categories if c and str(c).strip() and str(c) not in ("nan", "Uncategorized", "None")]
+
+    if not categories:
+        return
+
+    client = get_supabase_client()
+    
+    # Load existing categories
+    existing = client.table("category_mappings").select("category").execute()
+    existing_set = {r["category"] for r in (existing.data or [])}
+    
+    # Find truly new categories
+    new_cats = [c for c in categories if str(c) not in existing_set]
+    
+    if not new_cats:
+        return
+
+    # Insert with side='Retail' default, assigned_at=NULL (flagged for review)
+    records = [
+        {"category": str(c), "side": "Retail", "assigned_at": None}
+        for c in new_cats
+    ]
+    
+    try:
+        client.table("category_mappings").upsert(
+            records, on_conflict="category"
+        ).execute()
+        print(f"🆕 Registered {len(new_cats)} new category(ies): {', '.join(new_cats)}")
+    except Exception as e:
+        print(f"⚠️ Category registration failed: {e}")
+
+
 def _update_daily_store_stats(tx_df: pd.DataFrame):
     """Recalculate daily_store_stats for affected dates (member vs non-member split).
     
@@ -725,6 +780,12 @@ def run_full_sync(hours_back: int = 2) -> dict:
                 _update_daily_store_stats(tx_df)
             except Exception as e:
                 print(f"⚠️ Daily store stats update failed: {e}")
+            
+            # Auto-register any new categories for dashboard classification
+            try:
+                _register_new_categories(tx_df)
+            except Exception as e:
+                print(f"⚠️ Category registration failed: {e}")
     except Exception as e:
         results["errors"].append(f"Transactions: {e}")
         print(f"❌ Transaction sync failed: {e}")
@@ -835,6 +896,23 @@ def run_smart_sync() -> dict:
             tx_df = tx_df.drop(columns=["__base", "__dup_idx"])
 
             results["transactions"] = upsert_transactions(tx_df)
+            
+            # Update daily summaries
+            try:
+                _update_daily_summaries(tx_df)
+            except Exception as e:
+                print(f"⚠️ Daily summary update failed: {e}")
+            
+            try:
+                _update_daily_store_stats(tx_df)
+            except Exception as e:
+                print(f"⚠️ Daily store stats update failed: {e}")
+            
+            # Auto-register any new categories
+            try:
+                _register_new_categories(tx_df)
+            except Exception as e:
+                print(f"⚠️ Category registration failed: {e}")
     except Exception as e:
         results["errors"].append(f"Transactions: {e}")
         print(f"❌ Transaction sync failed: {e}")
