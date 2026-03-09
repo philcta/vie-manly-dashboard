@@ -6,16 +6,7 @@ import KpiCard from "@/components/kpi-card";
 import { SortableTable, type ColumnDef } from "@/components/sortable-table";
 import { supabase } from "@/lib/supabase";
 import { formatCurrency, formatPercent, formatNumber } from "@/lib/format";
-import { ChevronDown, X, Filter } from "lucide-react";
-import {
-    BarChart,
-    Bar,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    ResponsiveContainer,
-} from "recharts";
+import { ChevronDown, X, Filter, AlertTriangle, TrendingDown, Package, Clock, ShoppingCart } from "lucide-react";
 
 interface InventoryItem {
     product: string;
@@ -31,7 +22,26 @@ interface InventoryItem {
     defaultVendor: string | null;
     lastSaleDate: string | null;
     sku: string;
+    /* Intelligence fields */
+    salesVelocity: number;
+    sold7d: number;
+    sold30d: number;
+    sold90d: number;
+    revenue30d: number;
+    lastSoldDate: string | null;
+    lastReceivedDate: string | null;
+    daysOfStock: number;
+    sellThrough: number;
+    reorderAlert: string;
     [key: string]: unknown;
+}
+
+interface AlertSummary {
+    critical: number;
+    low: number;
+    watch: number;
+    overstock: number;
+    dead: number;
 }
 
 /* ── Multi-select dropdown filter ─────────────────────────────── */
@@ -54,44 +64,28 @@ function FilterDropdown({
         return () => document.removeEventListener("mousedown", handler);
     }, []);
 
-    const active = selected.size > 0 && selected.size < options.length;
-
     return (
-        <div ref={ref} className="relative">
+        <div className="relative" ref={ref}>
             <button
                 onClick={() => setOpen(!open)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${active
-                    ? "border-olive bg-olive/10 text-olive"
-                    : "border-border bg-card text-muted-foreground hover:text-foreground"
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-colors cursor-pointer border ${selected.size > 0
+                        ? "bg-olive text-white border-olive"
+                        : "bg-muted text-muted-foreground border-border hover:text-foreground"
                     }`}
             >
-                {label}
-                {active && <span className="bg-olive text-white text-[10px] rounded-full px-1.5 leading-4">{selected.size}</span>}
+                {label}{selected.size > 0 && ` (${selected.size})`}
                 <ChevronDown size={12} />
             </button>
             {open && (
-                <div className="absolute z-50 mt-1 w-56 max-h-64 overflow-y-auto bg-card border border-border rounded-lg shadow-lg py-1">
-                    <button
-                        className="w-full text-left px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted transition-colors cursor-pointer"
-                        onClick={() => {
-                            onChange(new Set());
-                        }}
-                    >
-                        {selected.size === 0 ? "✓ All" : "Select all"}
-                    </button>
-                    <div className="border-t border-border my-1" />
+                <div className="absolute z-50 mt-1 w-56 max-h-64 overflow-y-auto bg-card border border-border rounded-lg shadow-lg p-2 space-y-0.5">
                     {options.map((opt) => (
-                        <label
-                            key={opt}
-                            className="flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted cursor-pointer transition-colors"
-                        >
+                        <label key={opt} className="flex items-center gap-2 px-2 py-1 text-xs cursor-pointer hover:bg-muted rounded">
                             <input
                                 type="checkbox"
                                 checked={selected.has(opt)}
                                 onChange={() => {
                                     const next = new Set(selected);
-                                    if (next.has(opt)) next.delete(opt);
-                                    else next.add(opt);
+                                    next.has(opt) ? next.delete(opt) : next.add(opt);
                                     onChange(next);
                                 }}
                                 className="rounded border-border accent-olive"
@@ -105,12 +99,56 @@ function FilterDropdown({
     );
 }
 
+/* ── Reorder Alert Badge ──────────────────────────────────────── */
+function AlertBadge({ level }: { level: string }) {
+    const styles: Record<string, string> = {
+        CRITICAL: "bg-red-500/15 text-red-600 ring-red-500/30",
+        LOW: "bg-orange-500/15 text-orange-600 ring-orange-500/30",
+        WATCH: "bg-yellow-500/15 text-yellow-700 ring-yellow-500/30",
+        OK: "bg-olive/10 text-olive ring-olive/20",
+        OVERSTOCK: "bg-blue-500/15 text-blue-600 ring-blue-500/30",
+        DEAD: "bg-zinc-500/15 text-zinc-500 ring-zinc-500/30",
+    };
+    return (
+        <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ring-1 ${styles[level] || styles.OK}`}>
+            {level}
+        </span>
+    );
+}
+
+/* ── Alert Summary Card ───────────────────────────────────────── */
+function AlertCard({ icon, label, count, color, onClick, active }: {
+    icon: React.ReactNode;
+    label: string;
+    count: number;
+    color: string;
+    onClick: () => void;
+    active: boolean;
+}) {
+    return (
+        <button
+            onClick={onClick}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-all cursor-pointer hover:shadow-md ${active ? `ring-2 ${color} border-transparent shadow-md` : "border-border bg-card"
+                }`}
+        >
+            <div className={`p-2 rounded-lg ${color.replace("ring-", "bg-").replace("/40", "/10")}`}>
+                {icon}
+            </div>
+            <div className="text-left">
+                <div className="text-lg font-bold tabular-nums text-foreground">{count}</div>
+                <div className="text-[11px] text-muted-foreground">{label}</div>
+            </div>
+        </button>
+    );
+}
+
 export default function InventoryPage() {
     const [loading, setLoading] = useState(true);
     const [items, setItems] = useState<InventoryItem[]>([]);
     const [saleFilter, setSaleFilter] = useState<"all" | "6mo" | "3mo" | "1mo">("1mo");
     const [categoryFilter, setCategoryFilter] = useState<Set<string>>(new Set());
     const [vendorFilter, setVendorFilter] = useState<Set<string>>(new Set());
+    const [alertFilter, setAlertFilter] = useState<string | null>(null);
     const [stockValue, setStockValue] = useState(0);
     const [retailValue, setRetailValue] = useState(0);
     const [avgMargin, setAvgMargin] = useState(0);
@@ -118,6 +156,8 @@ export default function InventoryPage() {
     const [retailMargin, setRetailMargin] = useState(0);
     const [lowCount, setLowCount] = useState(0);
     const [snapshotDate, setSnapshotDate] = useState("");
+    const [alerts, setAlerts] = useState<AlertSummary>({ critical: 0, low: 0, watch: 0, overstock: 0, dead: 0 });
+    const [hasIntelligence, setHasIntelligence] = useState(false);
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -149,6 +189,17 @@ export default function InventoryPage() {
                 .order("product_name", { ascending: true });
 
             if (invErr) throw invErr;
+
+            // Fetch intelligence data (join by SKU)
+            const { data: intelData } = await supabase
+                .from("inventory_intelligence")
+                .select("sku, sales_velocity, units_sold_7d, units_sold_30d, units_sold_90d, revenue_30d, last_sold_date, last_received_date, days_of_stock, sell_through_pct, reorder_alert");
+
+            const intelMap = new Map<string, typeof intelData extends (infer T)[] | null ? T : never>();
+            for (const row of intelData || []) {
+                if (row.sku) intelMap.set(row.sku, row);
+            }
+            setHasIntelligence(intelMap.size > 0);
 
             // Fetch recent sales data for velocity calculations
             const thirtyDaysAgo = new Date();
@@ -188,11 +239,9 @@ export default function InventoryPage() {
                 const actualProfit = avgSellingPrice > 0
                     ? ((avgSellingPrice - unitCost) / avgSellingPrice) * 100
                     : 0;
-                const potentialProfit = retailPrice > 0
-                    ? ((retailPrice - unitCost) / retailPrice) * 100
-                    : 0;
 
                 const catStr = (item.categories || "").toString();
+                const sku = (item.sku as string) || "";
 
                 const lowThreshold = 3;
                 const warnThreshold = 10;
@@ -200,6 +249,9 @@ export default function InventoryPage() {
                 let status: "OK" | "Warning" | "Low" = "OK";
                 if (currentQty <= lowThreshold) status = "Low";
                 else if (currentQty <= warnThreshold) status = "Warning";
+
+                // Intelligence data (from Square API)
+                const intel = sku ? intelMap.get(sku) : undefined;
 
                 return {
                     product: productName,
@@ -214,7 +266,18 @@ export default function InventoryPage() {
                     itemStatus: (item.status as string) || "ACTIVE",
                     defaultVendor: (item.default_vendor as string) || null,
                     lastSaleDate: (item.last_sale_date as string) || null,
-                    sku: (item.sku as string) || "",
+                    sku,
+                    // Intelligence
+                    salesVelocity: intel?.sales_velocity ?? 0,
+                    sold7d: intel?.units_sold_7d ?? 0,
+                    sold30d: intel?.units_sold_30d ?? 0,
+                    sold90d: intel?.units_sold_90d ?? 0,
+                    revenue30d: intel?.revenue_30d ?? 0,
+                    lastSoldDate: intel?.last_sold_date ? intel.last_sold_date.split("T")[0] : null,
+                    lastReceivedDate: intel?.last_received_date ? intel.last_received_date.split("T")[0] : null,
+                    daysOfStock: intel?.days_of_stock ?? (daysLeft > 900 ? 9999 : daysLeft),
+                    sellThrough: intel?.sell_through_pct ?? 0,
+                    reorderAlert: intel?.reorder_alert ?? "OK",
                 };
             });
 
@@ -226,13 +289,12 @@ export default function InventoryPage() {
             const rv = positiveStock.reduce((s, i) => s + i.qty * i.price, 0);
             const lc = displayItems.filter((i) => i.stockStatus === "Low").length;
 
-            // Margin calculations: only items with positive stock
+            // Margin calculations
             const inStock = displayItems.filter((i) => i.qty > 0);
             const isSV = inStock.reduce((s, i) => s + i.qty * i.cost, 0);
             const isRV = inStock.reduce((s, i) => s + i.qty * i.price, 0);
             const am = isRV > 0 ? ((isRV - isSV) / isRV) * 100 : 0;
 
-            // Split margin by Cafe vs Retail (positive stock only)
             const cafeInStock = inStock.filter((i) => cafeCategories.has(i.category));
             const retailInStock = inStock.filter((i) => !cafeCategories.has(i.category));
 
@@ -250,6 +312,17 @@ export default function InventoryPage() {
             setCafeMargin(cm);
             setRetailMargin(rm);
             setLowCount(lc);
+
+            // Alert summary
+            const alertCounts: AlertSummary = { critical: 0, low: 0, watch: 0, overstock: 0, dead: 0 };
+            for (const item of displayItems) {
+                if (item.reorderAlert === "CRITICAL") alertCounts.critical++;
+                else if (item.reorderAlert === "LOW") alertCounts.low++;
+                else if (item.reorderAlert === "WATCH") alertCounts.watch++;
+                else if (item.reorderAlert === "OVERSTOCK") alertCounts.overstock++;
+                else if (item.reorderAlert === "DEAD") alertCounts.dead++;
+            }
+            setAlerts(alertCounts);
         } catch (err) {
             console.error("Failed to load inventory:", err);
         } finally {
@@ -261,25 +334,42 @@ export default function InventoryPage() {
         loadData();
     }, [loadData]);
 
-    const statusBadge = (status: string) => {
-        switch (status) {
-            case "Low":
-                return "bg-coral text-white";
-            case "Warning":
-                return "bg-warning text-white";
-            default:
-                return "bg-olive text-white";
-        }
-    };
-
     const profitColor = (pct: number) => {
         if (pct >= 40) return "text-olive";
         if (pct >= 20) return "text-warning";
         return "text-coral";
     };
 
-    // ── Column definitions for SortableTable ─────────────────────
+    const formatDaysAgo = (dateStr: string | null) => {
+        if (!dateStr) return "—";
+        const d = new Date(dateStr);
+        const now = new Date();
+        const days = Math.floor((now.getTime() - d.getTime()) / 86400000);
+        if (days === 0) return "Today";
+        if (days === 1) return "Yesterday";
+        if (days < 7) return `${days}d ago`;
+        if (days < 30) return `${Math.floor(days / 7)}w ago`;
+        return `${Math.floor(days / 30)}mo ago`;
+    };
+
+    const velocityLabel = (v: number) => {
+        if (v === 0) return "—";
+        if (v < 1) return `${v.toFixed(1)}/mo`;
+        return `${Math.round(v)}/mo`;
+    };
+
+    // ── Column definitions ─────────────────────────────────────
     const stockColumns: ColumnDef<InventoryItem>[] = [
+        {
+            key: "reorderAlert",
+            label: "Alert",
+            align: "center",
+            sortValue: (r) => {
+                const order: Record<string, number> = { CRITICAL: 0, LOW: 1, WATCH: 2, OK: 3, OVERSTOCK: 4, DEAD: 5 };
+                return order[r.reorderAlert] ?? 3;
+            },
+            render: (r) => <AlertBadge level={r.reorderAlert} />,
+        },
         {
             key: "product",
             label: "Product",
@@ -294,10 +384,51 @@ export default function InventoryPage() {
         },
         {
             key: "qty",
-            label: "Qty",
+            label: "On Hand",
             align: "right",
             sortValue: (r) => r.qty,
-            render: (r) => <span className="tabular-nums">{r.qty}</span>,
+            render: (r) => (
+                <span className={`tabular-nums font-medium ${r.qty <= 0 ? "text-red-500" : r.qty <= 3 ? "text-orange-500" : ""}`}>
+                    {r.qty}
+                </span>
+            ),
+        },
+        {
+            key: "salesVelocity",
+            label: "Velocity",
+            align: "right",
+            sortValue: (r) => r.salesVelocity,
+            render: (r) => <span className="tabular-nums text-text-body">{velocityLabel(r.salesVelocity)}</span>,
+        },
+        {
+            key: "sold30d",
+            label: "Sold 30d",
+            align: "right",
+            sortValue: (r) => r.sold30d,
+            render: (r) => <span className="tabular-nums">{r.sold30d > 0 ? r.sold30d : "—"}</span>,
+        },
+        {
+            key: "daysOfStock",
+            label: "Days Left",
+            align: "right",
+            sortValue: (r) => r.daysOfStock,
+            render: (r) => {
+                const d = r.daysOfStock;
+                const color = d < 3 ? "text-red-500 font-bold" : d < 7 ? "text-orange-500 font-semibold" : d < 14 ? "text-yellow-600" : "";
+                return <span className={`tabular-nums ${color}`}>{d >= 9999 ? "–" : Math.round(d)}</span>;
+            },
+        },
+        {
+            key: "lastSoldDate",
+            label: "Last Sold",
+            sortValue: (r) => r.lastSoldDate || "0",
+            render: (r) => <span className="text-text-body text-xs">{formatDaysAgo(r.lastSoldDate)}</span>,
+        },
+        {
+            key: "lastReceivedDate",
+            label: "Last Recv",
+            sortValue: (r) => r.lastReceivedDate || "0",
+            render: (r) => <span className="text-text-body text-xs">{formatDaysAgo(r.lastReceivedDate)}</span>,
         },
         {
             key: "cost",
@@ -315,7 +446,7 @@ export default function InventoryPage() {
         },
         {
             key: "actualProfit",
-            label: "Actual %",
+            label: "Margin",
             align: "right",
             sortValue: (r) => r.actualProfit,
             render: (r) => (
@@ -336,59 +467,102 @@ export default function InventoryPage() {
             sortValue: (r) => (r.defaultVendor || "").toLowerCase(),
             render: (r) => <span className="text-text-body text-xs">{r.defaultVendor || <span className="text-muted-foreground">—</span>}</span>,
         },
-        {
-            key: "daysLeft",
-            label: "Days Left",
-            align: "right",
-            sortValue: (r) => r.daysLeft,
-            render: (r) => <span className="tabular-nums">{r.daysLeft > 900 ? "∞" : r.daysLeft}</span>,
-        },
-        {
-            key: "gst",
-            label: "Tax",
-            align: "center",
-            sortValue: (r) => r.gst ? 1 : 0,
-            render: (r) => (
-                r.gst
-                    ? <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-amber-100 text-amber-700 text-[9px] font-bold leading-none" title="GST 10%">G</span>
-                    : <span className="text-muted-foreground text-[10px]">—</span>
-            ),
-        },
-        {
-            key: "stockStatus",
-            label: "Stock",
-            align: "center",
-            sortValue: (r) => r.stockStatus === "Low" ? 0 : r.stockStatus === "Warning" ? 1 : 2,
-            render: (r) => (
-                <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${statusBadge(r.stockStatus as string)}`}>
-                    {r.stockStatus as string}
-                </span>
-            ),
-        },
     ];
 
-    // Category bar chart
-    const categories = ["Food", "Drinks", "Cafe", "Retail"];
-    const catChartData = categories.map((cat) => {
-        const catItems = items.filter(
-            (i) => i.category.toLowerCase() === cat.toLowerCase()
-        );
-        return {
-            category: cat,
-            stock: catItems.reduce((s, i) => s + i.qty, 0),
-        };
-    });
+    // Compute filtered data
+    const filteredItems = (() => {
+        let filtered = items;
+
+        // Alert filter
+        if (alertFilter) {
+            filtered = filtered.filter(i => i.reorderAlert === alertFilter);
+        }
+
+        // Sale recency filter
+        if (saleFilter !== "all") {
+            const days = saleFilter === "6mo" ? 180 : saleFilter === "3mo" ? 90 : 30;
+            const cutoff = new Date(Date.now() - days * 86400000).toISOString().split("T")[0];
+            filtered = filtered.filter(i => i.lastSaleDate && i.lastSaleDate >= cutoff);
+        }
+
+        // Category filter
+        if (categoryFilter.size > 0) {
+            filtered = filtered.filter(i => categoryFilter.has(i.category));
+        }
+
+        // Vendor filter
+        if (vendorFilter.size > 0) {
+            filtered = filtered.filter(i => vendorFilter.has(i.defaultVendor || "(none)"));
+        }
+
+        return filtered;
+    })();
+
+    const needsActionCount = alerts.critical + alerts.low;
 
     return (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-8">
             <h1 className="text-[28px] font-bold text-foreground">Inventory</h1>
 
+            {/* KPI Cards */}
             <div className="grid grid-cols-4 gap-5">
                 <KpiCard label="Stock Value" value={stockValue} formatter={(n) => formatCurrency(n, 0)} subtitle={snapshotDate ? `as of ${snapshotDate}` : undefined} delay={0} />
                 <KpiCard label="Retail Value" value={retailValue} formatter={(n) => formatCurrency(n, 0)} subtitle={snapshotDate ? `as of ${snapshotDate}` : undefined} delay={1} />
                 <KpiCard label="Avg Profit Margin" value={avgMargin} formatter={(n) => formatPercent(n)} subtitle={`Cafe: ${formatPercent(cafeMargin)} · Retail: ${formatPercent(retailMargin)}`} delay={2} />
-                <KpiCard label="Low Stock Items" value={lowCount} formatter={(n) => formatNumber(n)} delay={3} />
+                <KpiCard label="Needs Action" value={needsActionCount} formatter={(n) => formatNumber(n)} subtitle={`${alerts.critical} critical · ${alerts.low} low`} delay={3} />
             </div>
+
+            {/* ── Restock Alerts Panel ──────────────────────────── */}
+            {hasIntelligence && (
+                <div className="bg-card rounded-xl border border-border p-5" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+                    <h3 className="text-base font-semibold text-foreground mb-4 flex items-center gap-2">
+                        <AlertTriangle size={16} className="text-orange-500" />
+                        Stock Intelligence
+                    </h3>
+                    <div className="grid grid-cols-5 gap-3">
+                        <AlertCard
+                            icon={<AlertTriangle size={16} className="text-red-500" />}
+                            label="Critical"
+                            count={alerts.critical}
+                            color="ring-red-500/40"
+                            onClick={() => setAlertFilter(alertFilter === "CRITICAL" ? null : "CRITICAL")}
+                            active={alertFilter === "CRITICAL"}
+                        />
+                        <AlertCard
+                            icon={<TrendingDown size={16} className="text-orange-500" />}
+                            label="Low Stock"
+                            count={alerts.low}
+                            color="ring-orange-500/40"
+                            onClick={() => setAlertFilter(alertFilter === "LOW" ? null : "LOW")}
+                            active={alertFilter === "LOW"}
+                        />
+                        <AlertCard
+                            icon={<Clock size={16} className="text-yellow-600" />}
+                            label="Watch"
+                            count={alerts.watch}
+                            color="ring-yellow-500/40"
+                            onClick={() => setAlertFilter(alertFilter === "WATCH" ? null : "WATCH")}
+                            active={alertFilter === "WATCH"}
+                        />
+                        <AlertCard
+                            icon={<Package size={16} className="text-blue-500" />}
+                            label="Overstock"
+                            count={alerts.overstock}
+                            color="ring-blue-500/40"
+                            onClick={() => setAlertFilter(alertFilter === "OVERSTOCK" ? null : "OVERSTOCK")}
+                            active={alertFilter === "OVERSTOCK"}
+                        />
+                        <AlertCard
+                            icon={<ShoppingCart size={16} className="text-zinc-400" />}
+                            label="Dead Stock"
+                            count={alerts.dead}
+                            color="ring-zinc-500/40"
+                            onClick={() => setAlertFilter(alertFilter === "DEAD" ? null : "DEAD")}
+                            active={alertFilter === "DEAD"}
+                        />
+                    </div>
+                </div>
+            )}
 
             {/* Filters + Stock Levels table */}
             <div className="space-y-3">
@@ -396,7 +570,6 @@ export default function InventoryPage() {
                 <div className="flex flex-wrap items-center gap-2">
                     <Filter size={14} className="text-muted-foreground" />
 
-                    {/* Category filter dropdown */}
                     <FilterDropdown
                         label="Category"
                         options={[...new Set(items.map(i => i.category))].filter(Boolean).sort()}
@@ -404,7 +577,6 @@ export default function InventoryPage() {
                         onChange={setCategoryFilter}
                     />
 
-                    {/* Vendor filter dropdown */}
                     <FilterDropdown
                         label="Vendor"
                         options={[...new Set(items.map(i => i.defaultVendor || "(none)"))].sort()}
@@ -436,9 +608,9 @@ export default function InventoryPage() {
                     })}
 
                     {/* Clear filters */}
-                    {(categoryFilter.size > 0 || vendorFilter.size > 0 || saleFilter !== "1mo") && (
+                    {(categoryFilter.size > 0 || vendorFilter.size > 0 || saleFilter !== "1mo" || alertFilter) && (
                         <button
-                            onClick={() => { setCategoryFilter(new Set()); setVendorFilter(new Set()); setSaleFilter("1mo"); }}
+                            onClick={() => { setCategoryFilter(new Set()); setVendorFilter(new Set()); setSaleFilter("1mo"); setAlertFilter(null); }}
                             className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                         >
                             <X size={12} />
@@ -450,47 +622,12 @@ export default function InventoryPage() {
                 <SortableTable
                     title="Stock Levels"
                     columns={stockColumns}
-                    data={(() => {
-                        let filtered = items;
-
-                        // Sale recency filter
-                        if (saleFilter !== "all") {
-                            const days = saleFilter === "6mo" ? 180 : saleFilter === "3mo" ? 90 : 30;
-                            const cutoff = new Date(Date.now() - days * 86400000).toISOString().split("T")[0];
-                            filtered = filtered.filter(i => i.lastSaleDate && i.lastSaleDate >= cutoff);
-                        }
-
-                        // Category filter
-                        if (categoryFilter.size > 0) {
-                            filtered = filtered.filter(i => categoryFilter.has(i.category));
-                        }
-
-                        // Vendor filter
-                        if (vendorFilter.size > 0) {
-                            filtered = filtered.filter(i => vendorFilter.has(i.defaultVendor || "(none)"));
-                        }
-
-                        return filtered;
-                    })()}
-                    defaultSortKey="product"
+                    data={filteredItems}
+                    defaultSortKey={alertFilter ? "daysOfStock" : "product"}
                     defaultSortDir="asc"
                     searchKeys={["product", "category", "sku", "defaultVendor"]}
-                    searchPlaceholder="Search product, category, SKU or vendor…"
+                    searchPlaceholder="Search product, category, SKU or vendor..."
                 />
-            </div>
-
-            {/* Category Chart */}
-            <div className="bg-card rounded-xl border border-border p-6" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-                <h3 className="text-base font-semibold text-foreground mb-4">Stock by Category</h3>
-                <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={catChartData} layout="vertical" barSize={24}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#F0F0EE" horizontal={false} />
-                        <XAxis type="number" tick={{ fill: "#8A8A8A", fontSize: 11 }} axisLine={false} tickLine={false} />
-                        <YAxis dataKey="category" type="category" tick={{ fill: "#8A8A8A", fontSize: 12 }} axisLine={false} tickLine={false} width={60} />
-                        <Tooltip contentStyle={{ background: "white", borderRadius: 8, border: "1px solid #EAEAE8", fontSize: 13 }} />
-                        <Bar dataKey="stock" fill="#6B7355" radius={[0, 4, 4, 0]} animationDuration={600} />
-                    </BarChart>
-                </ResponsiveContainer>
             </div>
 
             {loading && (

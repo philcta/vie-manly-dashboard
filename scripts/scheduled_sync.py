@@ -85,6 +85,18 @@ def main():
             print(f"  Phase 2 FAILED: {e}")
             results["latest_sync"] = {"status": "error", "error": str(e)}
 
+    # Phase 3: Stock Intelligence (sales velocity, reorder alerts)
+    print("\n--- PHASE 3: Stock Intelligence (reorder alerts) ---")
+    t0 = time.time()
+    try:
+        from scripts.sync_inventory_intelligence import run_intelligence_sync
+        intel_result = run_intelligence_sync(days_back=90)
+        results["intelligence"] = intel_result
+        print(f"  Phase 3 completed in {time.time() - t0:.1f}s")
+    except Exception as e:
+        print(f"  Phase 3 FAILED: {e}")
+        results["intelligence"] = {"status": "error", "error": str(e)}
+
     # Summary
     completed = datetime.now(SYDNEY_TZ)
     results["completed_at"] = completed.isoformat()
@@ -92,6 +104,7 @@ def main():
 
     print(f"\n{'=' * 60}")
     print(f"SCHEDULED SYNC COMPLETE ({elapsed:.1f}s)")
+
 
     if results["backfill"]:
         bf = results["backfill"]
