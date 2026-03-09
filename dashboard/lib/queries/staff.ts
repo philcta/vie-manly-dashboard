@@ -272,13 +272,18 @@ export async function fetchBiweeklyEarnings(
 }
 
 /**
- * Total break-deducted shift count per staff member since data began.
+ * Break-deducted shift count per staff member within a date range.
  */
-export async function fetchBreakStats(): Promise<Map<string, number>> {
+export async function fetchBreakStats(
+    periodStart: string,
+    periodEnd: string
+): Promise<Map<string, number>> {
     const { data, error } = await supabase
         .from("staff_shifts")
         .select("staff_name")
-        .eq("break_deducted", true);
+        .eq("break_deducted", true)
+        .gte("shift_date", periodStart)
+        .lte("shift_date", periodEnd);
 
     if (error) throw error;
 

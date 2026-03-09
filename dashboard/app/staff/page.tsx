@@ -72,7 +72,7 @@ export default function StaffPage() {
                     fetchDailyStats(compRange.startDate, compRange.endDate),
                     fetchStaffRates(),
                     fetchBiweeklyEarnings(pp.periodStart, pp.periodEnd),
-                    fetchBreakStats(),
+                    fetchBreakStats(pp.periodStart, pp.periodEnd),
                 ]);
 
             setShifts(currentShifts);
