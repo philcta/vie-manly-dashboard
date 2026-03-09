@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import KpiCard from "@/components/kpi-card";
 import { SortableTable, type ColumnDef } from "@/components/sortable-table";
 import { supabase } from "@/lib/supabase";
 import { formatCurrency, formatPercent, formatNumber } from "@/lib/format";
+import { ChevronDown, X, Filter } from "lucide-react";
 import {
     BarChart,
     Bar,
@@ -23,22 +24,93 @@ interface InventoryItem {
     cost: number;
     price: number;
     actualProfit: number;
-    potentialProfit: number;
-    popRank: number;
-    profitRank: number;
     daysLeft: number;
     stockStatus: "OK" | "Warning" | "Low";
     gst: boolean;
     itemStatus: string;
     defaultVendor: string | null;
     lastSaleDate: string | null;
+    sku: string;
     [key: string]: unknown;
+}
+
+/* ── Multi-select dropdown filter ─────────────────────────────── */
+function FilterDropdown({
+    label, options, selected, onChange,
+}: {
+    label: string;
+    options: string[];
+    selected: Set<string>;
+    onChange: (next: Set<string>) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+        };
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+    }, []);
+
+    const active = selected.size > 0 && selected.size < options.length;
+
+    return (
+        <div ref={ref} className="relative">
+            <button
+                onClick={() => setOpen(!open)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${active
+                    ? "border-olive bg-olive/10 text-olive"
+                    : "border-border bg-card text-muted-foreground hover:text-foreground"
+                    }`}
+            >
+                {label}
+                {active && <span className="bg-olive text-white text-[10px] rounded-full px-1.5 leading-4">{selected.size}</span>}
+                <ChevronDown size={12} />
+            </button>
+            {open && (
+                <div className="absolute z-50 mt-1 w-56 max-h-64 overflow-y-auto bg-card border border-border rounded-lg shadow-lg py-1">
+                    <button
+                        className="w-full text-left px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted transition-colors cursor-pointer"
+                        onClick={() => {
+                            onChange(new Set());
+                        }}
+                    >
+                        {selected.size === 0 ? "✓ All" : "Select all"}
+                    </button>
+                    <div className="border-t border-border my-1" />
+                    {options.map((opt) => (
+                        <label
+                            key={opt}
+                            className="flex items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted cursor-pointer transition-colors"
+                        >
+                            <input
+                                type="checkbox"
+                                checked={selected.has(opt)}
+                                onChange={() => {
+                                    const next = new Set(selected);
+                                    if (next.has(opt)) next.delete(opt);
+                                    else next.add(opt);
+                                    onChange(next);
+                                }}
+                                className="rounded border-border accent-olive"
+                            />
+                            {opt || "(none)"}
+                        </label>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
 }
 
 export default function InventoryPage() {
     const [loading, setLoading] = useState(true);
     const [items, setItems] = useState<InventoryItem[]>([]);
-    const [saleFilter, setSaleFilter] = useState<"all" | "6mo" | "3mo" | "1mo">("all");
+    const [saleFilter, setSaleFilter] = useState<"all" | "6mo" | "3mo" | "1mo">("1mo");
+    const [categoryFilter, setCategoryFilter] = useState<Set<string>>(new Set());
+    const [vendorFilter, setVendorFilter] = useState<Set<string>>(new Set());
     const [stockValue, setStockValue] = useState(0);
     const [retailValue, setRetailValue] = useState(0);
     const [avgMargin, setAvgMargin] = useState(0);
@@ -70,7 +142,7 @@ export default function InventoryPage() {
 
             const { data: inv, error: invErr } = await supabase
                 .from("inventory")
-                .select("product_name, categories, current_quantity, default_unit_cost, price, gst_applicable, status, default_vendor, last_sale_date")
+                .select("product_name, categories, current_quantity, default_unit_cost, price, gst_applicable, status, default_vendor, last_sale_date, sku")
                 .eq("source_date", sourceDate || "")
                 .order("product_name", { ascending: true });
 
@@ -134,33 +206,14 @@ export default function InventoryPage() {
                     cost: unitCost,
                     price: retailPrice,
                     actualProfit,
-                    potentialProfit,
-                    popRank: 0,
-                    profitRank: 0,
                     daysLeft,
                     stockStatus: status,
                     gst: item.gst_applicable === true,
                     itemStatus: (item.status as string) || "ACTIVE",
                     defaultVendor: (item.default_vendor as string) || null,
                     lastSaleDate: (item.last_sale_date as string) || null,
+                    sku: (item.sku as string) || "",
                 };
-            });
-
-            // Calculate ranks
-            const sortedByPop = [...displayItems].sort((a, b) => {
-                const aSales = salesMap.get(a.product)?.qtySold ?? 0;
-                const bSales = salesMap.get(b.product)?.qtySold ?? 0;
-                return bSales - aSales;
-            });
-            sortedByPop.forEach((item, i) => {
-                const found = displayItems.find((d) => d.product === item.product);
-                if (found) found.popRank = i + 1;
-            });
-
-            const sortedByProfit = [...displayItems].sort((a, b) => b.actualProfit - a.actualProfit);
-            sortedByProfit.forEach((item, i) => {
-                const found = displayItems.find((d) => d.product === item.product);
-                if (found) found.profitRank = i + 1;
             });
 
             setItems(displayItems);
@@ -270,25 +323,16 @@ export default function InventoryPage() {
             ),
         },
         {
-            key: "potentialProfit",
-            label: "Potential %",
-            align: "right",
-            sortValue: (r) => r.potentialProfit,
-            render: (r) => <span className="tabular-nums">{formatPercent(r.potentialProfit)}</span>,
+            key: "sku",
+            label: "SKU",
+            sortValue: (r) => r.sku.toLowerCase(),
+            render: (r) => <span className="text-muted-foreground text-xs tabular-nums">{r.sku || "—"}</span>,
         },
         {
-            key: "popRank",
-            label: "Pop #",
-            align: "right",
-            sortValue: (r) => r.popRank,
-            render: (r) => <span className="tabular-nums font-bold">#{r.popRank}</span>,
-        },
-        {
-            key: "profitRank",
-            label: "Profit #",
-            align: "right",
-            sortValue: (r) => r.profitRank,
-            render: (r) => <span className="tabular-nums font-bold">#{r.profitRank}</span>,
+            key: "defaultVendor",
+            label: "Vendor",
+            sortValue: (r) => (r.defaultVendor || "").toLowerCase(),
+            render: (r) => <span className="text-text-body text-xs">{r.defaultVendor || <span className="text-muted-foreground">—</span>}</span>,
         },
         {
             key: "daysLeft",
@@ -344,24 +388,36 @@ export default function InventoryPage() {
                 <KpiCard label="Low Stock Items" value={lowCount} formatter={(n) => formatNumber(n)} delay={3} />
             </div>
 
-            {/* Sale recency filter pills + Stock Levels table */}
+            {/* Filters + Stock Levels table */}
             <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground mr-1">Show products sold in:</span>
+                {/* Filter row */}
+                <div className="flex flex-wrap items-center gap-2">
+                    <Filter size={14} className="text-muted-foreground" />
+
+                    {/* Category filter dropdown */}
+                    <FilterDropdown
+                        label="Category"
+                        options={[...new Set(items.map(i => i.category))].filter(Boolean).sort()}
+                        selected={categoryFilter}
+                        onChange={setCategoryFilter}
+                    />
+
+                    {/* Vendor filter dropdown */}
+                    <FilterDropdown
+                        label="Vendor"
+                        options={[...new Set(items.map(i => i.defaultVendor || "(none)"))].sort()}
+                        selected={vendorFilter}
+                        onChange={setVendorFilter}
+                    />
+
+                    {/* Divider */}
+                    <div className="w-px h-5 bg-border mx-1" />
+
+                    {/* Sale recency pills */}
                     {(["all", "6mo", "3mo", "1mo"] as const).map((f) => {
-                        const cutoff = f === "6mo"
-                            ? new Date(Date.now() - 180 * 86400000).toISOString().split("T")[0]
-                            : f === "3mo"
-                                ? new Date(Date.now() - 90 * 86400000).toISOString().split("T")[0]
-                                : f === "1mo"
-                                    ? new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0]
-                                    : null;
-                        const count = cutoff
-                            ? items.filter(i => i.lastSaleDate && i.lastSaleDate >= cutoff).length
-                            : items.length;
                         const label = f === "all" ? "All"
-                            : f === "6mo" ? "Last 6 months"
-                                : f === "3mo" ? "Last 3 months"
+                            : f === "6mo" ? "6 months"
+                                : f === "3mo" ? "3 months"
                                     : "Last month";
                         return (
                             <button
@@ -372,27 +428,52 @@ export default function InventoryPage() {
                                         : "bg-muted text-muted-foreground hover:text-foreground"
                                     }`}
                             >
-                                {label} ({count})
+                                {label}
                             </button>
                         );
                     })}
+
+                    {/* Clear filters */}
+                    {(categoryFilter.size > 0 || vendorFilter.size > 0 || saleFilter !== "1mo") && (
+                        <button
+                            onClick={() => { setCategoryFilter(new Set()); setVendorFilter(new Set()); setSaleFilter("1mo"); }}
+                            className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                        >
+                            <X size={12} />
+                            Reset filters
+                        </button>
+                    )}
                 </div>
+
                 <SortableTable
                     title="Stock Levels"
                     columns={stockColumns}
                     data={(() => {
-                        if (saleFilter === "all") return items;
-                        const cutoff = saleFilter === "6mo"
-                            ? new Date(Date.now() - 180 * 86400000).toISOString().split("T")[0]
-                            : saleFilter === "3mo"
-                                ? new Date(Date.now() - 90 * 86400000).toISOString().split("T")[0]
-                                : new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
-                        return items.filter(i => i.lastSaleDate && i.lastSaleDate >= cutoff);
+                        let filtered = items;
+
+                        // Sale recency filter
+                        if (saleFilter !== "all") {
+                            const days = saleFilter === "6mo" ? 180 : saleFilter === "3mo" ? 90 : 30;
+                            const cutoff = new Date(Date.now() - days * 86400000).toISOString().split("T")[0];
+                            filtered = filtered.filter(i => i.lastSaleDate && i.lastSaleDate >= cutoff);
+                        }
+
+                        // Category filter
+                        if (categoryFilter.size > 0) {
+                            filtered = filtered.filter(i => categoryFilter.has(i.category));
+                        }
+
+                        // Vendor filter
+                        if (vendorFilter.size > 0) {
+                            filtered = filtered.filter(i => vendorFilter.has(i.defaultVendor || "(none)"));
+                        }
+
+                        return filtered;
                     })()}
                     defaultSortKey="product"
                     defaultSortDir="asc"
-                    searchKeys={["product", "category"]}
-                    searchPlaceholder="Search product or category…"
+                    searchKeys={["product", "category", "sku", "defaultVendor"]}
+                    searchPlaceholder="Search product, category, SKU or vendor…"
                 />
             </div>
 

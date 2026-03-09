@@ -135,23 +135,21 @@ def fetch_tax_objects():
     return taxes
 
 
-def fetch_vendor_map():
-    """Fetch all vendors via Square Vendors API."""
+def fetch_vendor_names(vendor_ids):
+    """Bulk-retrieve vendor names by IDs via POST /v2/vendors/bulk-retrieve."""
     vendors = {}
-    try:
-        cursor = None
-        while True:
-            body = {"limit": 100}
-            if cursor:
-                body["cursor"] = cursor
-            data = sq_post("vendors/search", body)
-            for v in data.get("vendors", []):
-                vendors[v["id"]] = v.get("name", "Unknown")
-            cursor = data.get("cursor")
-            if not cursor:
-                break
-    except Exception as e:
-        print(f"  ⚠ Vendors API: {e}")
+    id_list = list(vendor_ids)
+    # Process in batches of 100 (API limit)
+    for i in range(0, len(id_list), 100):
+        batch = id_list[i:i+100]
+        try:
+            data = sq_post('vendors/bulk-retrieve', {'vendor_ids': batch})
+            for vid, resp in data.get('responses', {}).items():
+                v = resp.get('vendor', {})
+                if v.get('name'):
+                    vendors[vid] = v['name']
+        except Exception as e:
+            print(f"  ⚠ Bulk retrieve batch {i//100}: {e}")
     return vendors
 
 
@@ -184,21 +182,34 @@ def main():
             break
     print(f"  GST tax ID: {gst_tax_id[:20] + '...' if gst_tax_id else 'NOT FOUND'}")
 
-    # Step 3: Fetch vendors
-    print("\n🏪 Fetching vendors...")
-    vendor_map = fetch_vendor_map()
-    print(f"  Found {len(vendor_map)} vendors")
-    for vid, vname in list(vendor_map.items())[:5]:
-        print(f"    {vname}")
-    if len(vendor_map) > 5:
-        print(f"    ... and {len(vendor_map) - 5} more")
-
-    # Step 4: Fetch all catalog items
+    # Step 3: Fetch all catalog items (skip deleted/archived)
     print("\n📦 Fetching all catalog items...")
     catalog_items = fetch_all_catalog_items()
     print(f"  Total catalog items: {len(catalog_items)}")
 
-    # Step 5: Build enrichment map
+    # Step 4: Collect all vendor IDs from catalog items
+    print("\n🏪 Collecting vendor IDs from catalog...")
+    all_vendor_ids = set()
+    for obj in catalog_items:
+        item_data = obj.get('item_data', {})
+        for var in item_data.get('variations', []):
+            vd = var.get('item_variation_data', {})
+            for vi in vd.get('item_variation_vendor_infos', []):
+                vid = vi.get('item_variation_vendor_info_data', {}).get('vendor_id')
+                if vid:
+                    all_vendor_ids.add(vid)
+    print(f"  Found {len(all_vendor_ids)} unique vendor IDs")
+
+    # Step 5: Bulk-resolve vendor names
+    print("\n🏪 Resolving vendor names...")
+    vendor_map = fetch_vendor_names(all_vendor_ids)
+    print(f"  Resolved {len(vendor_map)} vendors")
+    for vname in list(vendor_map.values())[:8]:
+        print(f"    {vname}")
+    if len(vendor_map) > 8:
+        print(f"    ... and {len(vendor_map) - 8} more")
+
+    # Step 6: Build enrichment map
     enrichment = {}
     archived_count = 0
     gst_count = 0
@@ -221,15 +232,14 @@ def main():
         if has_gst:
             gst_count += 1
 
-        # Get vendor from first variation
+        # Get vendor from first variation's vendor info
         default_vendor_name = None
-        for var in item_data.get("variations", []):
-            vd = var.get("item_variation_data", {})
-            # Check item_supplier_infos
-            for si in vd.get("item_supplier_infos", []):
-                supplier_id = si.get("supplier_id", "")
-                if supplier_id in vendor_map:
-                    default_vendor_name = vendor_map[supplier_id]
+        for var in item_data.get('variations', []):
+            vd = var.get('item_variation_data', {})
+            for vi in vd.get('item_variation_vendor_infos', []):
+                vid = vi.get('item_variation_vendor_info_data', {}).get('vendor_id')
+                if vid and vid in vendor_map:
+                    default_vendor_name = vendor_map[vid]
                     break
             if default_vendor_name:
                 break
@@ -247,7 +257,7 @@ def main():
     print(f"  GST applicable: {gst_count}")
     print(f"  Total mapped: {len(enrichment)}")
 
-    # Step 6: Fetch inventory rows and update
+    # Step 7: Fetch inventory rows and update
     print(f"\n💾 Updating inventory rows for {source_date}...")
 
     # Fetch in pages of 1000
