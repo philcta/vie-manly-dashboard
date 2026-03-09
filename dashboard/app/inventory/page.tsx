@@ -27,13 +27,18 @@ interface InventoryItem {
     popRank: number;
     profitRank: number;
     daysLeft: number;
-    status: "OK" | "Warning" | "Low";
+    stockStatus: "OK" | "Warning" | "Low";
+    gst: boolean;
+    itemStatus: string;
+    defaultVendor: string | null;
+    lastSaleDate: string | null;
     [key: string]: unknown;
 }
 
 export default function InventoryPage() {
     const [loading, setLoading] = useState(true);
     const [items, setItems] = useState<InventoryItem[]>([]);
+    const [statusFilter, setStatusFilter] = useState<"active" | "all" | "archived">("active");
     const [stockValue, setStockValue] = useState(0);
     const [retailValue, setRetailValue] = useState(0);
     const [avgMargin, setAvgMargin] = useState(0);
@@ -65,7 +70,7 @@ export default function InventoryPage() {
 
             const { data: inv, error: invErr } = await supabase
                 .from("inventory")
-                .select("product_name, categories, current_quantity, default_unit_cost, price")
+                .select("product_name, categories, current_quantity, default_unit_cost, price, gst_applicable, status, default_vendor, last_sale_date")
                 .eq("source_date", sourceDate || "")
                 .order("product_name", { ascending: true });
 
@@ -133,7 +138,11 @@ export default function InventoryPage() {
                     popRank: 0,
                     profitRank: 0,
                     daysLeft,
-                    status,
+                    stockStatus: status,
+                    gst: item.gst_applicable === true,
+                    itemStatus: (item.status as string) || "ACTIVE",
+                    defaultVendor: (item.default_vendor as string) || null,
+                    lastSaleDate: (item.last_sale_date as string) || null,
                 };
             });
 
@@ -159,7 +168,7 @@ export default function InventoryPage() {
             // Aggregate KPIs
             const sv = displayItems.reduce((s, i) => s + i.qty * i.cost, 0);
             const rv = displayItems.reduce((s, i) => s + i.qty * i.price, 0);
-            const lc = displayItems.filter((i) => i.status === "Low").length;
+            const lc = displayItems.filter((i) => i.stockStatus === "Low").length;
 
             // Margin calculations: only items with positive stock
             const inStock = displayItems.filter((i) => i.qty > 0);
@@ -288,13 +297,24 @@ export default function InventoryPage() {
             render: (r) => <span className="tabular-nums">{r.daysLeft > 900 ? "∞" : r.daysLeft}</span>,
         },
         {
-            key: "status",
-            label: "Status",
+            key: "gst",
+            label: "Tax",
             align: "center",
-            sortValue: (r) => r.status === "Low" ? 0 : r.status === "Warning" ? 1 : 2,
+            sortValue: (r) => r.gst ? 1 : 0,
             render: (r) => (
-                <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${statusBadge(r.status)}`}>
-                    {r.status}
+                r.gst
+                    ? <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-amber-100 text-amber-700 text-[9px] font-bold leading-none" title="GST 10%">G</span>
+                    : <span className="text-muted-foreground text-[10px]">—</span>
+            ),
+        },
+        {
+            key: "stockStatus",
+            label: "Stock",
+            align: "center",
+            sortValue: (r) => r.stockStatus === "Low" ? 0 : r.stockStatus === "Warning" ? 1 : 2,
+            render: (r) => (
+                <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${statusBadge(r.stockStatus as string)}`}>
+                    {r.stockStatus as string}
                 </span>
             ),
         },
@@ -323,16 +343,34 @@ export default function InventoryPage() {
                 <KpiCard label="Low Stock Items" value={lowCount} formatter={(n) => formatNumber(n)} delay={3} />
             </div>
 
-            {/* Stock Levels — uses shared SortableTable for consistency */}
-            <SortableTable
-                title="Stock Levels"
-                columns={stockColumns}
-                data={items}
-                defaultSortKey="product"
-                defaultSortDir="asc"
-                searchKeys={["product", "category"]}
-                searchPlaceholder="Search product or category…"
-            />
+            {/* Status filter pills + Stock Levels table */}
+            <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                    {(["active", "all", "archived"] as const).map((f) => (
+                        <button
+                            key={f}
+                            onClick={() => setStatusFilter(f)}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors cursor-pointer ${statusFilter === f
+                                    ? "bg-olive text-white"
+                                    : "bg-muted text-muted-foreground hover:text-foreground"
+                                }`}
+                        >
+                            {f === "active" ? `Active (${items.filter(i => i.itemStatus === "ACTIVE").length})` :
+                                f === "archived" ? `Archived (${items.filter(i => i.itemStatus === "ARCHIVED").length})` :
+                                    `All (${items.length})`}
+                        </button>
+                    ))}
+                </div>
+                <SortableTable
+                    title="Stock Levels"
+                    columns={stockColumns}
+                    data={statusFilter === "all" ? items : items.filter(i => statusFilter === "active" ? i.itemStatus === "ACTIVE" : i.itemStatus === "ARCHIVED")}
+                    defaultSortKey="product"
+                    defaultSortDir="asc"
+                    searchKeys={["product", "category"]}
+                    searchPlaceholder="Search product or category…"
+                />
+            </div>
 
             {/* Category Chart */}
             <div className="bg-card rounded-xl border border-border p-6" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
