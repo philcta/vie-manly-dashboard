@@ -213,13 +213,18 @@ def compute_intelligence(changes_by_var, catalog_map, counts_map):
         sell_through = (units_sold_30d / denominator * 100) if denominator > 0 else 0
         
         # ── Alert Logic ──
+        # Smarter thresholds: only flag CRITICAL for items with meaningful velocity
         alert = "OK"
         
-        if current_qty <= 0 and units_sold_30d > 0:
-            alert = "CRITICAL"  # Out of stock but actively selling
+        if current_qty <= 0 and sales_velocity > 3:
+            alert = "CRITICAL"  # Out of stock AND selling fast (>3/month)
+        elif current_qty <= 0 and sales_velocity > 0:
+            alert = "WATCH"     # Out of stock but slow seller — monitor, not urgent
         elif current_qty > 0 and daily_rate > 0:
-            if days_of_stock < 3:
-                alert = "CRITICAL"
+            if days_of_stock < 3 and sales_velocity > 3:
+                alert = "CRITICAL"  # About to run out on a fast seller
+            elif days_of_stock < 3:
+                alert = "LOW"       # Very low but not a fast seller
             elif days_of_stock < 7:
                 alert = "LOW"
             elif days_of_stock < 14:
