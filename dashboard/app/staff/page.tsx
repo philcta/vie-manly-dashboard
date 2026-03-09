@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
+import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import KpiCard from "@/components/kpi-card";
 import PeriodSelector from "@/components/period-selector";
 import {
@@ -297,10 +298,16 @@ export default function StaffPage() {
                     }
                 };
 
-                const SortArrow = ({ col }: { col: SortKey }) => (
-                    <span className={`w-3 inline-block text-[8px] leading-none transition-opacity ${sortCol === col ? "opacity-70" : "opacity-0 group-hover:opacity-30"}`}>
-                        {sortCol === col && sortDir === "desc" ? "▼" : "▲"}
-                    </span>
+                const SortIcon = ({ col }: { col: SortKey }) => (
+                    sortCol === col ? (
+                        sortDir === "asc" ? (
+                            <ChevronUp className="w-3.5 h-3.5 text-olive" />
+                        ) : (
+                            <ChevronDown className="w-3.5 h-3.5 text-olive" />
+                        )
+                    ) : (
+                        <ChevronsUpDown className="w-3.5 h-3.5 opacity-30" />
+                    )
                 );
 
                 return (
@@ -350,30 +357,30 @@ export default function StaffPage() {
                                     <col style={{ width: "8%" }} />
                                 </colgroup>
                                 <thead className="sticky top-0 z-10">
-                                    <tr className="bg-[#FAFAF8] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                        <th className="px-4 py-2.5 cursor-pointer select-none group" onClick={() => toggleSort("name")}>
-                                            <span className="inline-flex items-center gap-0.5">Name<SortArrow col="name" /></span>
+                                    <tr className="bg-[#FAFAF8]">
+                                        <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-left" onClick={() => toggleSort("name")}>
+                                            <span className="inline-flex items-center gap-1">Name<SortIcon col="name" /></span>
                                         </th>
-                                        <th className="px-4 py-2.5 cursor-pointer select-none group" onClick={() => toggleSort("role")}>
-                                            <span className="inline-flex items-center gap-0.5">Role<SortArrow col="role" /></span>
+                                        <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-left" onClick={() => toggleSort("role")}>
+                                            <span className="inline-flex items-center gap-1">Role<SortIcon col="role" /></span>
                                         </th>
-                                        <th className="px-4 py-2.5 cursor-pointer select-none group" onClick={() => toggleSort("earnings")} title="Biweekly earnings excl. 12% super (for Xero payroll)">
-                                            <span className="inline-flex items-center gap-0.5 float-right">Earnings<SortArrow col="earnings" /></span>
+                                        <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("earnings")} title="Biweekly earnings excl. 12% super (for Xero payroll)">
+                                            <span className="inline-flex items-center gap-1 float-right">Earnings<SortIcon col="earnings" /></span>
                                         </th>
-                                        <th className="px-4 py-2.5 cursor-pointer select-none group" onClick={() => toggleSort("weekday")}>
-                                            <span className="inline-flex items-center gap-0.5 float-right">Weekday<SortArrow col="weekday" /></span>
+                                        <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("weekday")}>
+                                            <span className="inline-flex items-center gap-1 float-right">Weekday<SortIcon col="weekday" /></span>
                                         </th>
-                                        <th className="px-4 py-2.5 cursor-pointer select-none group" onClick={() => toggleSort("saturday")}>
-                                            <span className="inline-flex items-center gap-0.5 float-right">Saturday<SortArrow col="saturday" /></span>
+                                        <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("saturday")}>
+                                            <span className="inline-flex items-center gap-1 float-right">Saturday<SortIcon col="saturday" /></span>
                                         </th>
-                                        <th className="px-4 py-2.5 cursor-pointer select-none group" onClick={() => toggleSort("sunday")}>
-                                            <span className="inline-flex items-center gap-0.5 float-right">Sunday<SortArrow col="sunday" /></span>
+                                        <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("sunday")}>
+                                            <span className="inline-flex items-center gap-1 float-right">Sunday<SortIcon col="sunday" /></span>
                                         </th>
-                                        <th className="px-4 py-2.5 cursor-pointer select-none group" onClick={() => toggleSort("publicHoliday")}>
-                                            <span className="inline-flex items-center gap-0.5 float-right">Pub. Holiday<SortArrow col="publicHoliday" /></span>
+                                        <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("publicHoliday")}>
+                                            <span className="inline-flex items-center gap-1 float-right">Pub. Holiday<SortIcon col="publicHoliday" /></span>
                                         </th>
-                                        <th className="px-2 py-2.5 text-center cursor-pointer select-none group" onClick={() => toggleSort("breaks")} title="Shifts with 30-min auto-break (>6h15)">
-                                            <span className="inline-flex items-center justify-center gap-0.5">Breaks<SortArrow col="breaks" /></span>
+                                        <th className="px-2 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-center" onClick={() => toggleSort("breaks")} title="Shifts with 30-min auto-break (>6h15)">
+                                            <span className="inline-flex items-center justify-center gap-1">Breaks<SortIcon col="breaks" /></span>
                                         </th>
                                     </tr>
                                 </thead>
