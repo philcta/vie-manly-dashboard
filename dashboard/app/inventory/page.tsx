@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import KpiCard from "@/components/kpi-card";
+import { SortableTable, type ColumnDef } from "@/components/sortable-table";
 import { supabase } from "@/lib/supabase";
 import { formatCurrency, formatPercent, formatNumber } from "@/lib/format";
 import {
@@ -13,7 +14,6 @@ import {
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
-    Legend,
 } from "recharts";
 
 interface InventoryItem {
@@ -28,6 +28,7 @@ interface InventoryItem {
     profitRank: number;
     daysLeft: number;
     status: "OK" | "Warning" | "Low";
+    [key: string]: unknown;
 }
 
 export default function InventoryPage() {
@@ -53,7 +54,6 @@ export default function InventoryPage() {
 
             const sourceDate = latestDate?.source_date;
 
-            // Fetch inventory items for latest snapshot
             // Fetch category_mappings to classify Cafe vs Retail
             const { data: catMaps } = await supabase
                 .from("category_mappings")
@@ -113,10 +113,8 @@ export default function InventoryPage() {
                     ? ((retailPrice - unitCost) / retailPrice) * 100
                     : 0;
 
-                // Determine category — categories may be comma-separated
                 const catStr = (item.categories || "").toString();
 
-                // Default thresholds
                 const lowThreshold = 3;
                 const warnThreshold = 10;
 
@@ -163,8 +161,7 @@ export default function InventoryPage() {
             const rv = displayItems.reduce((s, i) => s + i.qty * i.price, 0);
             const lc = displayItems.filter((i) => i.status === "Low").length;
 
-            // Margin calculations use only items with positive stock
-            // (negative qty items like cafe drinks distort the margin)
+            // Margin calculations: only items with positive stock
             const inStock = displayItems.filter((i) => i.qty > 0);
             const isSV = inStock.reduce((s, i) => s + i.qty * i.cost, 0);
             const isRV = inStock.reduce((s, i) => s + i.qty * i.price, 0);
@@ -216,6 +213,93 @@ export default function InventoryPage() {
         return "text-coral";
     };
 
+    // ── Column definitions for SortableTable ─────────────────────
+    const stockColumns: ColumnDef<InventoryItem>[] = [
+        {
+            key: "product",
+            label: "Product",
+            sortValue: (r) => r.product.toLowerCase(),
+            render: (r) => <span className="font-medium text-foreground">{r.product}</span>,
+        },
+        {
+            key: "category",
+            label: "Category",
+            sortValue: (r) => r.category.toLowerCase(),
+            render: (r) => <span className="text-text-body">{r.category}</span>,
+        },
+        {
+            key: "qty",
+            label: "Qty",
+            align: "right",
+            sortValue: (r) => r.qty,
+            render: (r) => <span className="tabular-nums">{r.qty}</span>,
+        },
+        {
+            key: "cost",
+            label: "Cost",
+            align: "right",
+            sortValue: (r) => r.cost,
+            render: (r) => <span className="tabular-nums">{formatCurrency(r.cost)}</span>,
+        },
+        {
+            key: "price",
+            label: "Price",
+            align: "right",
+            sortValue: (r) => r.price,
+            render: (r) => <span className="tabular-nums">{formatCurrency(r.price)}</span>,
+        },
+        {
+            key: "actualProfit",
+            label: "Actual %",
+            align: "right",
+            sortValue: (r) => r.actualProfit,
+            render: (r) => (
+                <span className={`tabular-nums font-medium ${profitColor(r.actualProfit)}`}>
+                    {formatPercent(r.actualProfit)}
+                </span>
+            ),
+        },
+        {
+            key: "potentialProfit",
+            label: "Potential %",
+            align: "right",
+            sortValue: (r) => r.potentialProfit,
+            render: (r) => <span className="tabular-nums">{formatPercent(r.potentialProfit)}</span>,
+        },
+        {
+            key: "popRank",
+            label: "Pop #",
+            align: "right",
+            sortValue: (r) => r.popRank,
+            render: (r) => <span className="tabular-nums font-bold">#{r.popRank}</span>,
+        },
+        {
+            key: "profitRank",
+            label: "Profit #",
+            align: "right",
+            sortValue: (r) => r.profitRank,
+            render: (r) => <span className="tabular-nums font-bold">#{r.profitRank}</span>,
+        },
+        {
+            key: "daysLeft",
+            label: "Days Left",
+            align: "right",
+            sortValue: (r) => r.daysLeft,
+            render: (r) => <span className="tabular-nums">{r.daysLeft > 900 ? "∞" : r.daysLeft}</span>,
+        },
+        {
+            key: "status",
+            label: "Status",
+            align: "center",
+            sortValue: (r) => r.status === "Low" ? 0 : r.status === "Warning" ? 1 : 2,
+            render: (r) => (
+                <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${statusBadge(r.status)}`}>
+                    {r.status}
+                </span>
+            ),
+        },
+    ];
+
     // Category bar chart
     const categories = ["Food", "Drinks", "Cafe", "Retail"];
     const catChartData = categories.map((cat) => {
@@ -239,40 +323,14 @@ export default function InventoryPage() {
                 <KpiCard label="Low Stock Items" value={lowCount} formatter={(n) => formatNumber(n)} delay={3} />
             </div>
 
-            {/* Stock Levels Table */}
-            <div className="bg-card rounded-xl border border-border overflow-hidden" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-                <div className="px-6 py-4 border-b border-border">
-                    <h3 className="text-base font-semibold text-foreground">Stock Levels</h3>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full">
-                        <thead>
-                            <tr className="bg-[#FAFAF8]">
-                                {["Product", "Category", "Qty", "Cost", "Price", "Actual %", "Potential %", "Pop #", "Profit #", "Days Left", "Status"].map((h) => (
-                                    <th key={h} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-body whitespace-nowrap">{h}</th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {items.map((item, i) => (
-                                <tr key={i} className="border-b border-[#F0F0EE] row-hover">
-                                    <td className="px-3 py-3 text-sm font-medium text-foreground">{item.product}</td>
-                                    <td className="px-3 py-3 text-sm text-text-body">{item.category}</td>
-                                    <td className="px-3 py-3 text-sm tabular-nums text-foreground">{item.qty}</td>
-                                    <td className="px-3 py-3 text-sm tabular-nums text-foreground">{formatCurrency(item.cost)}</td>
-                                    <td className="px-3 py-3 text-sm tabular-nums text-foreground">{formatCurrency(item.price)}</td>
-                                    <td className={`px-3 py-3 text-sm tabular-nums font-medium ${profitColor(item.actualProfit)}`}>{formatPercent(item.actualProfit)}</td>
-                                    <td className="px-3 py-3 text-sm tabular-nums text-foreground">{formatPercent(item.potentialProfit)}</td>
-                                    <td className="px-3 py-3 text-sm tabular-nums font-bold text-foreground">#{item.popRank}</td>
-                                    <td className="px-3 py-3 text-sm tabular-nums font-bold text-foreground">#{item.profitRank}</td>
-                                    <td className="px-3 py-3 text-sm tabular-nums text-foreground">{item.daysLeft > 900 ? "∞" : item.daysLeft}</td>
-                                    <td className="px-3 py-3"><span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${statusBadge(item.status)}`}>{item.status}</span></td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+            {/* Stock Levels — uses shared SortableTable for consistency */}
+            <SortableTable
+                title="Stock Levels"
+                columns={stockColumns}
+                data={items}
+                defaultSortKey="product"
+                defaultSortDir="asc"
+            />
 
             {/* Category Chart */}
             <div className="bg-card rounded-xl border border-border p-6" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>

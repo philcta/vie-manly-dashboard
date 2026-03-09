@@ -57,7 +57,7 @@ export default function SettingsPage() {
     const [storeName, setStoreName] = useState("Vie Market & Bar");
     const [timezone, setTimezone] = useState("Australia/Sydney");
     const [syncSchedule, setSyncSchedule] = useState("Every 1 hour");
-    const [defaultRange, setDefaultRange] = useState("this_week");
+    const [defaultRange, setDefaultRange] = useState("this_month");
 
     // Inventory thresholds
     const [greenAbove, setGreenAbove] = useState(40);

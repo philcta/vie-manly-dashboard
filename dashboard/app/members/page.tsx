@@ -140,7 +140,7 @@ const MEMBER_COLUMNS: ColumnDef<MemberRow>[] = [
 // ── Page component ──────────────────────────────────────────────
 
 export default function MembersPage() {
-    const [period, setPeriod] = useState<PeriodType>("this_week");
+    const [period, setPeriod] = useState<PeriodType>("this_month");
     const [comparison, setComparison] = useState<ComparisonType>("prior_period");
     const [customStart, setCustomStart] = useState("");
     const [customEnd, setCustomEnd] = useState("");
