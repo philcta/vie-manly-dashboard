@@ -330,6 +330,8 @@ export default function InventoryPage() {
                 data={items}
                 defaultSortKey="product"
                 defaultSortDir="asc"
+                searchKeys={["product", "category"]}
+                searchPlaceholder="Search product or category…"
             />
 
             {/* Category Chart */}

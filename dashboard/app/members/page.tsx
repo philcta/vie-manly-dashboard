@@ -372,6 +372,8 @@ export default function MembersPage() {
                     data={allMembers}
                     defaultSortKey="totalSpent"
                     defaultSortDir="desc"
+                    searchKeys={["name"]}
+                    searchPlaceholder="Search by name…"
                 />
             </section>
 
