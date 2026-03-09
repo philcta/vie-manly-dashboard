@@ -38,7 +38,7 @@ interface InventoryItem {
 export default function InventoryPage() {
     const [loading, setLoading] = useState(true);
     const [items, setItems] = useState<InventoryItem[]>([]);
-    const [statusFilter, setStatusFilter] = useState<"active" | "all" | "archived">("active");
+    const [saleFilter, setSaleFilter] = useState<"all" | "6mo" | "3mo" | "1mo">("all");
     const [stockValue, setStockValue] = useState(0);
     const [retailValue, setRetailValue] = useState(0);
     const [avgMargin, setAvgMargin] = useState(0);
@@ -165,9 +165,10 @@ export default function InventoryPage() {
 
             setItems(displayItems);
 
-            // Aggregate KPIs
-            const sv = displayItems.reduce((s, i) => s + i.qty * i.cost, 0);
-            const rv = displayItems.reduce((s, i) => s + i.qty * i.price, 0);
+            // Aggregate KPIs — only positive stock (matches Square dashboard)
+            const positiveStock = displayItems.filter((i) => i.qty > 0);
+            const sv = positiveStock.reduce((s, i) => s + i.qty * i.cost, 0);
+            const rv = positiveStock.reduce((s, i) => s + i.qty * i.price, 0);
             const lc = displayItems.filter((i) => i.stockStatus === "Low").length;
 
             // Margin calculations: only items with positive stock
@@ -343,28 +344,51 @@ export default function InventoryPage() {
                 <KpiCard label="Low Stock Items" value={lowCount} formatter={(n) => formatNumber(n)} delay={3} />
             </div>
 
-            {/* Status filter pills + Stock Levels table */}
+            {/* Sale recency filter pills + Stock Levels table */}
             <div className="space-y-3">
                 <div className="flex items-center gap-2">
-                    {(["active", "all", "archived"] as const).map((f) => (
-                        <button
-                            key={f}
-                            onClick={() => setStatusFilter(f)}
-                            className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors cursor-pointer ${statusFilter === f
-                                    ? "bg-olive text-white"
-                                    : "bg-muted text-muted-foreground hover:text-foreground"
-                                }`}
-                        >
-                            {f === "active" ? `Active (${items.filter(i => i.itemStatus === "ACTIVE").length})` :
-                                f === "archived" ? `Archived (${items.filter(i => i.itemStatus === "ARCHIVED").length})` :
-                                    `All (${items.length})`}
-                        </button>
-                    ))}
+                    <span className="text-xs text-muted-foreground mr-1">Show products sold in:</span>
+                    {(["all", "6mo", "3mo", "1mo"] as const).map((f) => {
+                        const cutoff = f === "6mo"
+                            ? new Date(Date.now() - 180 * 86400000).toISOString().split("T")[0]
+                            : f === "3mo"
+                                ? new Date(Date.now() - 90 * 86400000).toISOString().split("T")[0]
+                                : f === "1mo"
+                                    ? new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0]
+                                    : null;
+                        const count = cutoff
+                            ? items.filter(i => i.lastSaleDate && i.lastSaleDate >= cutoff).length
+                            : items.length;
+                        const label = f === "all" ? "All"
+                            : f === "6mo" ? "Last 6 months"
+                                : f === "3mo" ? "Last 3 months"
+                                    : "Last month";
+                        return (
+                            <button
+                                key={f}
+                                onClick={() => setSaleFilter(f)}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors cursor-pointer ${saleFilter === f
+                                        ? "bg-olive text-white"
+                                        : "bg-muted text-muted-foreground hover:text-foreground"
+                                    }`}
+                            >
+                                {label} ({count})
+                            </button>
+                        );
+                    })}
                 </div>
                 <SortableTable
                     title="Stock Levels"
                     columns={stockColumns}
-                    data={statusFilter === "all" ? items : items.filter(i => statusFilter === "active" ? i.itemStatus === "ACTIVE" : i.itemStatus === "ARCHIVED")}
+                    data={(() => {
+                        if (saleFilter === "all") return items;
+                        const cutoff = saleFilter === "6mo"
+                            ? new Date(Date.now() - 180 * 86400000).toISOString().split("T")[0]
+                            : saleFilter === "3mo"
+                                ? new Date(Date.now() - 90 * 86400000).toISOString().split("T")[0]
+                                : new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+                        return items.filter(i => i.lastSaleDate && i.lastSaleDate >= cutoff);
+                    })()}
                     defaultSortKey="product"
                     defaultSortDir="asc"
                     searchKeys={["product", "category"]}
