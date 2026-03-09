@@ -56,6 +56,8 @@ export default function StaffPage() {
     const [earningsMap, setEarningsMap] = useState<Map<string, number>>(new Map());
     const [breakMap, setBreakMap] = useState<Map<string, number>>(new Map());
     const [payPeriod, setPayPeriod] = useState(getPayPeriod());
+    const [sortCol, setSortCol] = useState<"name" | "role" | "earnings" | "weekday" | "saturday" | "sunday" | "publicHoliday" | "breaks">("name");
+    const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -242,14 +244,64 @@ export default function StaffPage() {
 
             {/* Staff Rates Table */}
             {(() => {
+                type SortKey = "name" | "role" | "earnings" | "weekday" | "saturday" | "sunday" | "publicHoliday" | "breaks";
                 const activeRates = ratesTable.filter((r) => r.isActive);
                 const inactiveRates = ratesTable.filter((r) => !r.isActive);
-                const filteredRates =
+                const base =
                     ratesFilter === "all"
                         ? ratesTable
                         : ratesFilter === "active"
                             ? activeRates
                             : inactiveRates;
+
+                // Sort
+                const sortedRates = [...base].sort((a, b) => {
+                    const dir = sortDir === "asc" ? 1 : -1;
+                    const valA = (() => {
+                        switch (sortCol) {
+                            case "name": return a.name.toLowerCase();
+                            case "role": return a.jobTitle.toLowerCase();
+                            case "earnings": return earningsMap.get(a.name) || 0;
+                            case "weekday": return a.weekday;
+                            case "saturday": return a.saturday;
+                            case "sunday": return a.sunday;
+                            case "publicHoliday": return a.publicHoliday;
+                            case "breaks": return breakMap.get(a.name) || 0;
+                            default: return a.name.toLowerCase();
+                        }
+                    })();
+                    const valB = (() => {
+                        switch (sortCol) {
+                            case "name": return b.name.toLowerCase();
+                            case "role": return b.jobTitle.toLowerCase();
+                            case "earnings": return earningsMap.get(b.name) || 0;
+                            case "weekday": return b.weekday;
+                            case "saturday": return b.saturday;
+                            case "sunday": return b.sunday;
+                            case "publicHoliday": return b.publicHoliday;
+                            case "breaks": return breakMap.get(b.name) || 0;
+                            default: return b.name.toLowerCase();
+                        }
+                    })();
+                    if (valA < valB) return -1 * dir;
+                    if (valA > valB) return 1 * dir;
+                    return 0;
+                });
+
+                const toggleSort = (col: SortKey) => {
+                    if (sortCol === col) {
+                        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                    } else {
+                        setSortCol(col);
+                        setSortDir(col === "name" || col === "role" ? "asc" : "desc");
+                    }
+                };
+
+                const SortArrow = ({ col }: { col: SortKey }) => (
+                    <span className={`ml-1 inline-block transition-transform ${sortCol === col ? "opacity-100" : "opacity-0 group-hover:opacity-40"}`}>
+                        {sortCol === col && sortDir === "desc" ? "▼" : "▲"}
+                    </span>
+                );
 
                 return (
                     <div className="bg-card rounded-xl border border-border overflow-hidden" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
@@ -289,22 +341,34 @@ export default function StaffPage() {
                             <table className="w-full text-sm">
                                 <thead className="sticky top-0 z-10">
                                     <tr className="bg-[#FAFAF8] text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                                        <th className="text-left px-4 py-2.5">Name</th>
-                                        <th className="text-left px-4 py-2.5">Role</th>
-                                        <th className="text-right px-3 py-2.5 w-28">
-                                            <span title="Biweekly earnings excl. 12% super (for Xero payroll)">Earnings</span>
+                                        <th className="text-left px-4 py-2.5 cursor-pointer select-none group" onClick={() => toggleSort("name")}>
+                                            Name<SortArrow col="name" />
                                         </th>
-                                        <th className="text-right px-4 py-2.5 w-24">Weekday</th>
-                                        <th className="text-right px-4 py-2.5 w-24">Saturday</th>
-                                        <th className="text-right px-4 py-2.5 w-24">Sunday</th>
-                                        <th className="text-right px-4 py-2.5 w-28">Public Holiday</th>
-                                        <th className="text-center px-2 py-2.5 w-16">
-                                            <span title="Total shifts with 30-min auto-break (>6h15)">Breaks</span>
+                                        <th className="text-left px-4 py-2.5 cursor-pointer select-none group" onClick={() => toggleSort("role")}>
+                                            Role<SortArrow col="role" />
+                                        </th>
+                                        <th className="text-right px-3 py-2.5 w-28 cursor-pointer select-none group" onClick={() => toggleSort("earnings")} title="Biweekly earnings excl. 12% super (for Xero payroll)">
+                                            Earnings<SortArrow col="earnings" />
+                                        </th>
+                                        <th className="text-right px-4 py-2.5 w-24 cursor-pointer select-none group" onClick={() => toggleSort("weekday")}>
+                                            Weekday<SortArrow col="weekday" />
+                                        </th>
+                                        <th className="text-right px-4 py-2.5 w-24 cursor-pointer select-none group" onClick={() => toggleSort("saturday")}>
+                                            Saturday<SortArrow col="saturday" />
+                                        </th>
+                                        <th className="text-right px-4 py-2.5 w-24 cursor-pointer select-none group" onClick={() => toggleSort("sunday")}>
+                                            Sunday<SortArrow col="sunday" />
+                                        </th>
+                                        <th className="text-right px-4 py-2.5 w-28 cursor-pointer select-none group" onClick={() => toggleSort("publicHoliday")}>
+                                            Public Holiday<SortArrow col="publicHoliday" />
+                                        </th>
+                                        <th className="text-center px-2 py-2.5 w-16 cursor-pointer select-none group" onClick={() => toggleSort("breaks")} title="Shifts with 30-min auto-break (>6h15)">
+                                            Breaks<SortArrow col="breaks" />
                                         </th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredRates.map((r, i) => {
+                                    {sortedRates.map((r, i) => {
                                         const earning = earningsMap.get(r.name) || 0;
                                         const breaks = breakMap.get(r.name) || 0;
                                         return (
@@ -347,7 +411,7 @@ export default function StaffPage() {
                                             </tr>
                                         );
                                     })}
-                                    {filteredRates.length === 0 && (
+                                    {sortedRates.length === 0 && (
                                         <tr>
                                             <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground text-sm">
                                                 No staff match this filter.
