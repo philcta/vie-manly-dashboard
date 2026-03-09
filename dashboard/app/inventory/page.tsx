@@ -117,6 +117,7 @@ export default function InventoryPage() {
     const [cafeMargin, setCafeMargin] = useState(0);
     const [retailMargin, setRetailMargin] = useState(0);
     const [lowCount, setLowCount] = useState(0);
+    const [snapshotDate, setSnapshotDate] = useState("");
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -130,6 +131,7 @@ export default function InventoryPage() {
                 .single();
 
             const sourceDate = latestDate?.source_date;
+            if (sourceDate) setSnapshotDate(sourceDate);
 
             // Fetch category_mappings to classify Cafe vs Retail
             const { data: catMaps } = await supabase
@@ -382,8 +384,8 @@ export default function InventoryPage() {
             <h1 className="text-[28px] font-bold text-foreground">Inventory</h1>
 
             <div className="grid grid-cols-4 gap-5">
-                <KpiCard label="Stock Value" value={stockValue} formatter={(n) => formatCurrency(n, 0)} delay={0} />
-                <KpiCard label="Retail Value" value={retailValue} formatter={(n) => formatCurrency(n, 0)} delay={1} />
+                <KpiCard label="Stock Value" value={stockValue} formatter={(n) => formatCurrency(n, 0)} subtitle={snapshotDate ? `as of ${snapshotDate}` : undefined} delay={0} />
+                <KpiCard label="Retail Value" value={retailValue} formatter={(n) => formatCurrency(n, 0)} subtitle={snapshotDate ? `as of ${snapshotDate}` : undefined} delay={1} />
                 <KpiCard label="Avg Profit Margin" value={avgMargin} formatter={(n) => formatPercent(n)} subtitle={`Cafe: ${formatPercent(cafeMargin)} · Retail: ${formatPercent(retailMargin)}`} delay={2} />
                 <KpiCard label="Low Stock Items" value={lowCount} formatter={(n) => formatNumber(n)} delay={3} />
             </div>
@@ -424,8 +426,8 @@ export default function InventoryPage() {
                                 key={f}
                                 onClick={() => setSaleFilter(f)}
                                 className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors cursor-pointer ${saleFilter === f
-                                        ? "bg-olive text-white"
-                                        : "bg-muted text-muted-foreground hover:text-foreground"
+                                    ? "bg-olive text-white"
+                                    : "bg-muted text-muted-foreground hover:text-foreground"
                                     }`}
                             >
                                 {label}
