@@ -203,3 +203,89 @@ export function pivotRates(rates: StaffRate[]) {
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/**
+ * Calculate the biweekly Xero pay period.
+ * Anchored to March 9, 2026 as the first update Monday.
+ * Every 2 weeks from that date, we show the PREVIOUS completed 2-week period.
+ *
+ * @returns { periodStart, periodEnd, nextUpdate } - all as YYYY-MM-DD strings
+ */
+export function getPayPeriod(today: Date = new Date()) {
+    // Reference Monday: March 9, 2026 (UTC)
+    const REF_MONDAY = new Date("2026-03-09T00:00:00");
+    const MS_PER_DAY = 86400000;
+    const PERIOD_DAYS = 14;
+
+    const daysSinceRef = Math.floor(
+        (today.getTime() - REF_MONDAY.getTime()) / MS_PER_DAY
+    );
+
+    // Which 2-week cycle are we in?
+    const periodIndex = Math.max(0, Math.floor(daysSinceRef / PERIOD_DAYS));
+
+    // The update Monday for this cycle
+    const updateMonday = new Date(
+        REF_MONDAY.getTime() + periodIndex * PERIOD_DAYS * MS_PER_DAY
+    );
+
+    // The pay period is the 2 weeks BEFORE the update Monday
+    const periodStart = new Date(updateMonday.getTime() - PERIOD_DAYS * MS_PER_DAY);
+    const periodEnd = new Date(updateMonday.getTime() - MS_PER_DAY);
+
+    // Next update Monday
+    const nextUpdate = new Date(
+        updateMonday.getTime() + PERIOD_DAYS * MS_PER_DAY
+    );
+
+    const fmt = (d: Date) => d.toISOString().split("T")[0];
+    return {
+        periodStart: fmt(periodStart),
+        periodEnd: fmt(periodEnd),
+        nextUpdate: fmt(nextUpdate),
+    };
+}
+
+/**
+ * Fetch biweekly earnings (no_super_earning) grouped by staff_name
+ * for the last completed pay period.
+ */
+export async function fetchBiweeklyEarnings(
+    periodStart: string,
+    periodEnd: string
+): Promise<Map<string, number>> {
+    const { data, error } = await supabase
+        .from("staff_shifts")
+        .select("staff_name, no_super_earning")
+        .gte("shift_date", periodStart)
+        .lte("shift_date", periodEnd);
+
+    if (error) throw error;
+
+    const earningsMap = new Map<string, number>();
+    for (const row of data || []) {
+        const name = row.staff_name;
+        const earning = Number(row.no_super_earning) || 0;
+        earningsMap.set(name, (earningsMap.get(name) || 0) + earning);
+    }
+    return earningsMap;
+}
+
+/**
+ * Total break-deducted shift count per staff member since data began.
+ */
+export async function fetchBreakStats(): Promise<Map<string, number>> {
+    const { data, error } = await supabase
+        .from("staff_shifts")
+        .select("staff_name")
+        .eq("break_deducted", true);
+
+    if (error) throw error;
+
+    const breakMap = new Map<string, number>();
+    for (const row of data || []) {
+        const name = row.staff_name;
+        breakMap.set(name, (breakMap.get(name) || 0) + 1);
+    }
+    return breakMap;
+}

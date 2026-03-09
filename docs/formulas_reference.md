@@ -174,9 +174,54 @@
 | Card | Formula | Unit |
 |------|---------|------|
 | **Staff Today** | `COUNT(DISTINCT staff_id) WHERE shift includes today` | # |
-| **Total Hours** | `SUM(clock_out − clock_in)` for all staff in `[period]` | hours |
-| **Labor Cost Ratio** | `SUM(hours_worked × hourly_rate) / Actual Sales Profit × 100` for `[period]`. Target band: 25–35% (configurable in Settings) | % |
+| **Total Hours** | `SUM(effective_hours)` for all staff in `[period]` | hours |
+| **Labor Cost Ratio** | `SUM(labour_cost) / Actual Sales Profit × 100` for `[period]`. Target band: 25–35% (configurable in Settings) | % |
 | **Revenue per Hour** | `Net Sales / Total Hours` for `[period]` | $/hr |
+
+### 30-Minute Break Deduction
+
+When a single shift exceeds **6 hours 15 minutes** (6.25h), an unpaid 30-minute break is automatically deducted.
+
+| Rule | Condition | Effect |
+|------|-----------|--------|
+| **Threshold** | `raw_effective_hours > 6.25` (for a single continuous shift) | Deduct 0.5h |
+| **Applied before splits** | For split roles (e.g. Barrista 80/20), the break is applied to the FULL shift hours BEFORE the 80/20 split | E.g. 8h → 7.5h → Bar 6.0h + Retail 1.5h |
+| **Flag** | `break_deducted = TRUE` on the staff_shifts row | Used for audit trail |
+| **Impact** | Reduces `effective_hours`, `labour_cost` (generated column), and `no_super_earning` | |
+| **Separate shifts** | Two separate shifts on the same day (e.g. 4h + 3h) are NOT combined — break only applies per individual shift > 6h15 | |
+
+### Earnings Without Super (Xero Payroll)
+
+The `hourly_rate` in `staff_rates` includes 12% superannuation (except under-18 staff). For Xero payroll reporting, we strip the super:
+
+| Field | Formula | Notes |
+|-------|---------|-------|
+| **no_super_earning** | `effective_hours × hourly_rate / 1.12` | Per shift row in `staff_shifts` |
+| **Biweekly Earnings** | `SUM(no_super_earning)` per `staff_name` for the last completed 2-week pay period | Displayed in Staff Rates table |
+
+### Biweekly Pay Period (Xero)
+
+| Parameter | Value |
+|-----------|-------|
+| **Reference Monday** | 2026-03-09 (anchor date) |
+| **Cycle** | Every 14 days from reference |
+| **Display rule** | Show PREVIOUS completed 2-week period |
+| **Update schedule** | First sync on each update Monday (6am via cron) |
+| **Pay period calc** | `periodStart = updateMonday - 14 days`, `periodEnd = updateMonday - 1 day` |
+| **Example** | On Mar 9: shows Feb 23 – Mar 8. On Mar 23: shows Mar 9 – Mar 22. |
+
+### Staff Rates Table (Staff Page)
+
+| Column | Source | Notes |
+|--------|--------|-------|
+| **Name** | `staff_rates.staff_name` | Grouped per person |
+| **Role** | `staff_rates.job_title` | Combined if multiple (e.g. "Kitchen / Manager") |
+| **Earnings** | `SUM(no_super_earning)` for the biweekly pay period | Bold, shows `—` if no shifts |
+| **Weekday** | `MAX(hourly_rate WHERE day_type='weekday')` across all roles | Includes super |
+| **Saturday** | `MAX(hourly_rate WHERE day_type='saturday')` | Includes super |
+| **Sunday** | `MAX(hourly_rate WHERE day_type='sunday')` | Includes super |
+| **Public Holiday** | `MAX(hourly_rate WHERE day_type='public_holiday')` | Includes super |
+| **Breaks** | `COUNT(*) WHERE break_deducted = TRUE AND staff_name = X` | All-time count, amber badge |
 
 ### Charts
 
@@ -252,9 +297,10 @@ All sections support "vs." period comparison. The badges show relative change.
 | `members` | member_id, first_name, last_name, email, phone, created_at |
 | `member_daily_stats` | member_id, stat_date, total_spent, total_visits, avg_spend_per_visit, days_since_last_visit, visit_frequency_30d, spend_trend_30d |
 | `daily_store_stats` | stat_date, total_net_sales, total_transactions, member_tx_ratio, member_sales_ratio, member_items_ratio |
-| `shifts` (Square Labor) | staff_id, start_time, end_time, hourly_rate |
+| `staff_shifts` | shift_date, team_member_id, staff_name, job_title, business_side, scheduled_start/end, actual_start/end, scheduled_hours, actual_hours, effective_hours, hourly_rate, labour_cost (generated), source, **break_deducted**, **no_super_earning** |
+| `staff_rates` | team_member_id, staff_name, job_title, day_type, hourly_rate, is_active |
+| `staff_roles` | team_member_id, staff_name, job_title, business_side (Bar/Retail), is_active |
 | `member_loyalty` | customer_id, loyalty_account_id, balance, lifetime_points, points_redeemed (computed), enrolled_at |
-| `staff_roles` | team_member_id, staff_name, job_title, business_side (Bar/Retail), hourly_rate, is_active |
 | `sms_campaigns` | campaign_id, name, message, send_date, status |
 | `sms_recipients` | campaign_id, member_id, delivery_status |
 | `settings` | All configurable thresholds, color bands, targets |

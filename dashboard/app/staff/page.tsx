@@ -9,6 +9,9 @@ import {
     fetchStaffRates,
     aggregateStaffKPIs,
     pivotRates,
+    getPayPeriod,
+    fetchBiweeklyEarnings,
+    fetchBreakStats,
     type StaffShift,
 } from "@/lib/queries/staff";
 import { fetchDailyStats, aggregateStats } from "@/lib/queries/overview";
@@ -50,20 +53,26 @@ export default function StaffPage() {
     const [compNetSales, setCompNetSales] = useState(0);
     const [ratesTable, setRatesTable] = useState<ReturnType<typeof pivotRates>>([]);
     const [ratesFilter, setRatesFilter] = useState<"all" | "active" | "inactive">("active");
+    const [earningsMap, setEarningsMap] = useState<Map<string, number>>(new Map());
+    const [breakMap, setBreakMap] = useState<Map<string, number>>(new Map());
+    const [payPeriod, setPayPeriod] = useState(getPayPeriod());
 
     const loadData = useCallback(async () => {
         setLoading(true);
         try {
             const currentRange = resolvePeriodRange(period, customStart, customEnd);
             const compRange = resolveComparisonRange(currentRange, comparison, period);
+            const pp = getPayPeriod();
 
-            const [currentShifts, compShiftData, dailyStats, compDailyStats, rates] =
+            const [currentShifts, compShiftData, dailyStats, compDailyStats, rates, earnings, breaks] =
                 await Promise.all([
                     fetchStaffShifts(currentRange.startDate, currentRange.endDate),
                     fetchStaffShifts(compRange.startDate, compRange.endDate),
                     fetchDailyStats(currentRange.startDate, currentRange.endDate),
                     fetchDailyStats(compRange.startDate, compRange.endDate),
                     fetchStaffRates(),
+                    fetchBiweeklyEarnings(pp.periodStart, pp.periodEnd),
+                    fetchBreakStats(),
                 ]);
 
             setShifts(currentShifts);
@@ -74,6 +83,9 @@ export default function StaffPage() {
             setNetSales(stats.netSales);
             setCompNetSales(compStats.netSales);
             setRatesTable(pivotRates(rates));
+            setEarningsMap(earnings);
+            setBreakMap(breaks);
+            setPayPeriod(pp);
         } catch (err) {
             console.error("Failed to load staff data:", err);
         } finally {
@@ -263,9 +275,15 @@ export default function StaffPage() {
                                     ))}
                                 </div>
                             </div>
-                            <span className="text-xs text-muted-foreground">
-                                Rates include 12% superannuation (except under-18)
-                            </span>
+                            <div className="text-right">
+                                <span className="text-xs text-muted-foreground block">
+                                    Rates include 12% super (except under-18)
+                                </span>
+                                <span className="text-[10px] text-muted-foreground">
+                                    Earnings period: {new Date(payPeriod.periodStart + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short" })} – {new Date(payPeriod.periodEnd + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}
+                                    {" · "}Next update: {new Date(payPeriod.nextUpdate + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
+                                </span>
+                            </div>
                         </div>
                         <div className="max-h-[480px] overflow-y-auto">
                             <table className="w-full text-sm">
@@ -273,41 +291,65 @@ export default function StaffPage() {
                                     <tr className="bg-[#FAFAF8] text-xs font-medium uppercase tracking-wider text-muted-foreground">
                                         <th className="text-left px-4 py-2.5">Name</th>
                                         <th className="text-left px-4 py-2.5">Role</th>
+                                        <th className="text-right px-3 py-2.5 w-28">
+                                            <span title="Biweekly earnings excl. 12% super (for Xero payroll)">Earnings</span>
+                                        </th>
                                         <th className="text-right px-4 py-2.5 w-24">Weekday</th>
                                         <th className="text-right px-4 py-2.5 w-24">Saturday</th>
                                         <th className="text-right px-4 py-2.5 w-24">Sunday</th>
                                         <th className="text-right px-4 py-2.5 w-28">Public Holiday</th>
+                                        <th className="text-center px-2 py-2.5 w-16">
+                                            <span title="Total shifts with 30-min auto-break (>6h15)">Breaks</span>
+                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredRates.map((r, i) => (
-                                        <tr
-                                            key={r.name}
-                                            className={`border-t border-border transition-colors ${!r.isActive
-                                                ? "opacity-50 bg-[#FAFAF8]/50"
-                                                : i % 2 === 0
-                                                    ? "bg-white"
-                                                    : "bg-[#FAFAF8]/50"
-                                                } hover:bg-olive-surface/30`}
-                                        >
-                                            <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">
-                                                {r.name}
-                                                {!r.isActive && (
-                                                    <span className="ml-2 text-[10px] font-semibold uppercase tracking-wider text-coral bg-coral/10 px-1.5 py-0.5 rounded-full">
-                                                        Inactive
-                                                    </span>
-                                                )}
-                                            </td>
-                                            <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{r.jobTitle}</td>
-                                            <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.weekday)}</td>
-                                            <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.saturday)}</td>
-                                            <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.sunday)}</td>
-                                            <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.publicHoliday)}</td>
-                                        </tr>
-                                    ))}
+                                    {filteredRates.map((r, i) => {
+                                        const earning = earningsMap.get(r.name) || 0;
+                                        const breaks = breakMap.get(r.name) || 0;
+                                        return (
+                                            <tr
+                                                key={r.name}
+                                                className={`border-t border-border transition-colors ${!r.isActive
+                                                    ? "opacity-50 bg-[#FAFAF8]/50"
+                                                    : i % 2 === 0
+                                                        ? "bg-white"
+                                                        : "bg-[#FAFAF8]/50"
+                                                    } hover:bg-olive-surface/30`}
+                                            >
+                                                <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">
+                                                    {r.name}
+                                                    {!r.isActive && (
+                                                        <span className="ml-2 text-[10px] font-semibold uppercase tracking-wider text-coral bg-coral/10 px-1.5 py-0.5 rounded-full">
+                                                            Inactive
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{r.jobTitle}</td>
+                                                <td className="px-3 py-3 text-right tabular-nums font-semibold text-foreground">
+                                                    {earning > 0 ? formatCurrency(earning) : (
+                                                        <span className="text-muted-foreground font-normal">—</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.weekday)}</td>
+                                                <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.saturday)}</td>
+                                                <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.sunday)}</td>
+                                                <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.publicHoliday)}</td>
+                                                <td className="px-2 py-3 text-center">
+                                                    {breaks > 0 ? (
+                                                        <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
+                                                            {breaks}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">—</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                     {filteredRates.length === 0 && (
                                         <tr>
-                                            <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground text-sm">
+                                            <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground text-sm">
                                                 No staff match this filter.
                                             </td>
                                         </tr>

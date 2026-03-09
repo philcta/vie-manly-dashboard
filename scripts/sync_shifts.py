@@ -297,6 +297,17 @@ def sync_day(target_date, names, jobs, rates):
             source = 'schedule'
             eff_hours = sched_hours
 
+        # ── 30-min auto-break for shifts > 6h15 (6.25h) ──
+        # Applied to the FULL shift duration BEFORE any role split.
+        # When an employee works > 6h15 in a single shift, they take
+        # a 30-minute unpaid break automatically.
+        BREAK_THRESHOLD = 6.25  # 6h15m
+        BREAK_DEDUCTION = 0.5   # 30 minutes
+        break_deducted = False
+        if eff_hours > BREAK_THRESHOLD:
+            eff_hours = round(eff_hours - BREAK_DEDUCTION, 2)
+            break_deducted = True
+
         # Determine if this is a split role
         should_split = is_split_role(job_title)
 
@@ -317,6 +328,8 @@ def sync_day(target_date, names, jobs, rates):
                 suffix = f"_{side}"
                 rate_job = job_title  # look up rate under original job title
                 rate = check_and_alert_rate(rates, mid, rate_job, day_type, name)
+                split_eff = round(eff_hours * pct, 2)
+                cost = round(split_eff * rate, 2)
 
                 rows.append({
                     "shift_date": str(target_date),
@@ -330,13 +343,16 @@ def sync_day(target_date, names, jobs, rates):
                     "actual_start": act_start.isoformat() if act_start else None,
                     "actual_end": act_end.isoformat() if act_end else None,
                     "actual_hours": round(act_hours * pct, 2) if act_hours else None,
-                    "effective_hours": round(eff_hours * pct, 2),
+                    "effective_hours": split_eff,
                     "source": source,
                     "hourly_rate": rate,
+                    "break_deducted": break_deducted,
+                    "no_super_earning": round(cost / 1.12, 2),
                 })
         else:
             side = get_side(job_title)
             rate = check_and_alert_rate(rates, mid, job_title, day_type, name)
+            cost = round(eff_hours * rate, 2)
 
             rows.append({
                 "shift_date": str(target_date),
@@ -353,6 +369,8 @@ def sync_day(target_date, names, jobs, rates):
                 "effective_hours": eff_hours,
                 "source": source,
                 "hourly_rate": rate,
+                "break_deducted": break_deducted,
+                "no_super_earning": round(cost / 1.12, 2),
             })
 
     # Unscheduled clock-ins (actuals not matched to schedule)
@@ -368,6 +386,14 @@ def sync_day(target_date, names, jobs, rates):
             act_hours = round((act_end - act_start).total_seconds() / 3600, 2)
             rate = check_and_alert_rate(rates, mid, job_title, day_type, name)
 
+            # Apply break deduction for unscheduled actuals too
+            break_ded = False
+            eff_h = act_hours
+            if eff_h > BREAK_THRESHOLD:
+                eff_h = round(eff_h - BREAK_DEDUCTION, 2)
+                break_ded = True
+            cost = round(eff_h * rate, 2)
+
             rows.append({
                 "shift_date": str(target_date),
                 "team_member_id": mid,
@@ -380,9 +406,11 @@ def sync_day(target_date, names, jobs, rates):
                 "actual_start": act_start.isoformat(),
                 "actual_end": act_end.isoformat(),
                 "actual_hours": act_hours,
-                "effective_hours": act_hours,
+                "effective_hours": eff_h,
                 "source": "actual",
                 "hourly_rate": rate,
+                "break_deducted": break_ded,
+                "no_super_earning": round(cost / 1.12, 2),
             })
 
     return rows
@@ -442,12 +470,14 @@ if __name__ == '__main__':
         cafe_h = sum(r['effective_hours'] for r in rows if r['business_side'] == 'Bar')
         retail_h = sum(r['effective_hours'] for r in rows if r['business_side'] == 'Retail')
         total_cost = sum(r['effective_hours'] * r['hourly_rate'] for r in rows)
+        break_count = sum(1 for r in rows if r.get('break_deducted'))
 
         upserted = upsert_to_supabase(rows)
         total += upserted
 
         has_split = any('_Bar' in r['job_title'] or '_Retail' in r['job_title'] for r in rows)
         split_flag = ' 🔀' if has_split else ''
+        break_flag = f' ⏸️{break_count}brk' if break_count else ''
 
         # Flag shifts with $0 rates for this day
         zero_rate = [r for r in rows if r['hourly_rate'] == 0]
@@ -457,7 +487,7 @@ if __name__ == '__main__':
         print(f"  {emoji} {d.strftime('%a %d %b')} [{day_type[:3]}]: {len(rows)} shifts "
               f"(s:{schedule_count} a:{actual_count}) "
               f"☕{cafe_h:.1f}h 🛍️{retail_h:.1f}h "
-              f"💰${total_cost:.0f}{split_flag}{rate_flag}")
+              f"💰${total_cost:.0f}{split_flag}{break_flag}{rate_flag}")
 
     # ── Missing rate alerts ──
     if _missing_rates:
