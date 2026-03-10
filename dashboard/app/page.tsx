@@ -11,6 +11,7 @@ import {
   fetchHourlyData,
   fetchCategoryDaily,
   fetchLabourCost,
+  fetchLabourCostBySide,
   fetchDailyLabour,
   fetchCategorySalesTotals,
   aggregateStats,
@@ -66,6 +67,8 @@ export default function OverviewPage() {
   const [compDailyLabour, setCompDailyLabour] = useState<DailyLabour[]>([]);
   const [catSalesTotals, setCatSalesTotals] = useState<CategorySalesTotal[]>([]);
   const [compCatSalesTotals, setCompCatSalesTotals] = useState<CategorySalesTotal[]>([]);
+  const [labourBySide, setLabourBySide] = useState<{ cafe: number; retail: number }>({ cafe: 0, retail: 0 });
+  const [compLabourBySide, setCompLabourBySide] = useState<{ cafe: number; retail: number }>({ cafe: 0, retail: 0 });
 
   // Inventory margins (pre-computed in Supabase)
   const [marginData, setMarginData] = useState<MarginRow[]>([]);
@@ -110,6 +113,8 @@ export default function OverviewPage() {
         histStats,
         histCatData,
         histLabour,
+        labSide,
+        compLabSide,
       ] = await Promise.all([
         fetchDailyStats(startDate, endDate),
         fetchDailyStats(compStart, compEnd),
@@ -133,6 +138,8 @@ export default function OverviewPage() {
         fetchDailyStats(histStart, endDate),
         fetchCategoryDaily(histStart, endDate),
         fetchDailyLabour(histStart, endDate),
+        fetchLabourCostBySide(startDate, endDate),
+        fetchLabourCostBySide(compStart, compEnd),
       ]);
 
       setDailyRows(dRows);
@@ -152,6 +159,8 @@ export default function OverviewPage() {
       setHistoricalStats(histStats);
       setHistoricalCategoryData(histCatData);
       setHistoricalLabour(histLabour);
+      setLabourBySide(labSide);
+      setCompLabourBySide(compLabSide);
 
       // Process margin data
       const margins = (marginsResult.data || []) as MarginRow[];
@@ -220,7 +229,17 @@ export default function OverviewPage() {
   const compCatAgg = aggregateCategoryStats(compCategoryData);
   const noCompCat = compCatAgg.cafeNetSales === 0 && compCatAgg.retailNetSales === 0;
 
-  // Category margin data for the chart
+  // Cafe/Retail avg sale
+  const cafeAvgSale = catAgg.cafeTransactions > 0 ? catAgg.cafeNetSales / catAgg.cafeTransactions : 0;
+  const retailAvgSale = catAgg.retailTransactions > 0 ? catAgg.retailNetSales / catAgg.retailTransactions : 0;
+  const compCafeAvgSale = compCatAgg.cafeTransactions > 0 ? compCatAgg.cafeNetSales / compCatAgg.cafeTransactions : 0;
+  const compRetailAvgSale = compCatAgg.retailTransactions > 0 ? compCatAgg.retailNetSales / compCatAgg.retailTransactions : 0;
+
+  // Cafe/Retail labour ratio
+  const cafeLabourRatio = catAgg.cafeNetSales > 0 ? (labourBySide.cafe / catAgg.cafeNetSales) * 100 : 0;
+  const retailLabourRatio = catAgg.retailNetSales > 0 ? (labourBySide.retail / catAgg.retailNetSales) * 100 : 0;
+  const compCafeLabourRatio = compCatAgg.cafeNetSales > 0 ? (compLabourBySide.cafe / compCatAgg.cafeNetSales) * 100 : 0;
+  const compRetailLabourRatio = compCatAgg.retailNetSales > 0 ? (compLabourBySide.retail / compCatAgg.retailNetSales) * 100 : 0;
   const categoryMargins = marginData.filter(m => m.scope_type === "category");
 
   return (
@@ -270,7 +289,7 @@ export default function OverviewPage() {
               </div>
             )}
 
-            {/* Row 1: Sales & costs — 4 cards */}
+            {/* Row 1: Sales core — 4 cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <KpiCard
                 label="Net Sales"
@@ -287,15 +306,16 @@ export default function OverviewPage() {
                 formatter={(n) => formatNumber(n)}
                 change={noCompData ? null : calcChange(cs?.transactions ?? 0, ps?.transactions ?? 0)}
                 noCompData={noCompData}
+                subtitle={`Cafe: ${formatNumber(catAgg.cafeTransactions)} · Retail: ${formatNumber(catAgg.retailTransactions)}`}
                 delay={1}
               />
               <KpiCard
-                label="Labour Cost"
-                value={labourCost}
-                formatter={(n) => formatCurrency(n)}
-                change={noCompLabour ? null : calcChange(labourCost, compLabourCost)}
-                noCompData={noCompLabour}
-                invertColor
+                label="Customers"
+                value={cs?.totalCustomers ?? 0}
+                formatter={(n) => formatNumber(n)}
+                change={noCompData ? null : calcChange(cs?.totalCustomers ?? 0, ps?.totalCustomers ?? 0)}
+                noCompData={noCompData}
+                subtitle="Members + non-members"
                 delay={2}
               />
               <KpiCard
@@ -304,21 +324,32 @@ export default function OverviewPage() {
                 formatter={(n) => formatCurrency(n)}
                 change={noCompData ? null : calcChange(cs?.avgSale ?? 0, ps?.avgSale ?? 0)}
                 noCompData={noCompData}
+                subtitle={`Cafe: ${formatCurrency(cafeAvgSale)} · Retail: ${formatCurrency(retailAvgSale)}`}
                 delay={3}
               />
             </div>
 
-            {/* Row 2: Profitability — 4 cards (key metrics highlighted) */}
+            {/* Row 2: Costs & Profitability — 4 cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
               <KpiCard
-                label="Avg Profit Margin"
-                value={effectiveMargin}
-                formatter={(n) => formatPercent(n)}
-                change={noCompCat ? null : calcChange(effectiveMargin, compEffectiveMargin)}
-                noCompData={noCompCat}
-                subtitle={`Cafe: ${formatPercent(cafeMargin)} · Retail: ${formatPercent(retailMargin)}`}
-                tooltip="Weighted by Cafe/Retail sales mix this period. Cafe items carry ~70% margin, Retail ~41%."
+                label="Labour Cost"
+                value={labourCost}
+                formatter={(n) => formatCurrency(n)}
+                change={noCompLabour ? null : calcChange(labourCost, compLabourCost)}
+                noCompData={noCompLabour}
+                invertColor
+                subtitle={`Cafe: ${formatCurrency(labourBySide.cafe)} · Retail: ${formatCurrency(labourBySide.retail)}`}
                 delay={4}
+              />
+              <KpiCard
+                label="Labour vs Sales %"
+                value={labourRatio}
+                formatter={(n) => formatPercent(n)}
+                change={noCompLabour ? null : calcChange(labourRatio, compLabourRatio)}
+                noCompData={noCompLabour}
+                invertColor
+                subtitle={`Cafe: ${formatPercent(cafeLabourRatio)} · Retail: ${formatPercent(retailLabourRatio)}`}
+                delay={5}
               />
               <KpiCard
                 label="Real Profit Margin"
@@ -329,7 +360,7 @@ export default function OverviewPage() {
                 subtitle={`Margin ${formatPercent(effectiveMargin)} − Labour ${formatPercent(labourRatio)}`}
                 tooltip="Profit margin after subtracting labour costs. Formula: Avg Margin − (Labour ÷ Net Sales × 100)."
                 accent
-                delay={5}
+                delay={6}
               />
               <KpiCard
                 label="Real Profit"
@@ -340,17 +371,21 @@ export default function OverviewPage() {
                 subtitle="After COGS + labour"
                 tooltip="Take-home profit: Net Sales × Avg Margin% − Labour Cost. Excludes rent, utilities, and overheads."
                 accent
-                delay={6}
-              />
-              <KpiCard
-                label="Labour vs Sales %"
-                value={labourRatio}
-                formatter={(n) => formatPercent(n)}
-                change={noCompLabour ? null : calcChange(labourRatio, compLabourRatio)}
-                noCompData={noCompLabour}
-                invertColor
-                subtitle="Target: 25–35%"
                 delay={7}
+              />
+            </div>
+
+            {/* Row 3: Margin — single card */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+              <KpiCard
+                label="Avg Profit Margin"
+                value={effectiveMargin}
+                formatter={(n) => formatPercent(n)}
+                change={noCompCat ? null : calcChange(effectiveMargin, compEffectiveMargin)}
+                noCompData={noCompCat}
+                subtitle={`Cafe: ${formatPercent(cafeMargin)} · Retail: ${formatPercent(retailMargin)}`}
+                tooltip="Weighted by Cafe/Retail sales mix this period. Cafe items carry ~70% margin, Retail ~41%."
+                delay={8}
               />
             </div>
           </section>
@@ -370,7 +405,7 @@ export default function OverviewPage() {
               effectiveMargin={effectiveMargin}
             />
 
-            {/* Category KPIs (Cafe vs Retail breakdown) */}
+            {/* Cafe vs Retail breakdown */}
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
               <KpiCard
                 label="Cafe Net Sales"
@@ -378,7 +413,7 @@ export default function OverviewPage() {
                 formatter={(n) => formatCurrency(n)}
                 change={noCompCat ? null : calcChange(catAgg.cafeNetSales, compCatAgg.cafeNetSales)}
                 noCompData={noCompCat}
-                delay={8}
+                delay={9}
               />
               <KpiCard
                 label="Retail Net Sales"
@@ -386,22 +421,16 @@ export default function OverviewPage() {
                 formatter={(n) => formatCurrency(n)}
                 change={noCompCat ? null : calcChange(catAgg.retailNetSales, compCatAgg.retailNetSales)}
                 noCompData={noCompCat}
-                delay={9}
+                delay={10}
               />
               <KpiCard
-                label="Total Net Sales"
-                value={catAgg.cafeNetSales + catAgg.retailNetSales}
-                formatter={(n) => formatCurrency(n)}
-                change={
-                  noCompCat
-                    ? null
-                    : calcChange(
-                      catAgg.cafeNetSales + catAgg.retailNetSales,
-                      compCatAgg.cafeNetSales + compCatAgg.retailNetSales
-                    )
-                }
-                noCompData={noCompCat}
-                delay={10}
+                label="Customers"
+                value={cs?.totalCustomers ?? 0}
+                formatter={(n) => formatNumber(n)}
+                change={noCompData ? null : calcChange(cs?.totalCustomers ?? 0, ps?.totalCustomers ?? 0)}
+                noCompData={noCompData}
+                subtitle="Members + non-members"
+                delay={11}
               />
             </div>
           </section>

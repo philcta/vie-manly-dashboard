@@ -151,6 +151,28 @@ export async function fetchLabourCost(
     return (data || []).reduce((sum, s) => sum + (Number(s.labour_cost) || 0), 0);
 }
 
+/** Fetch labour cost split by business_side (Cafe vs Retail) */
+export async function fetchLabourCostBySide(
+    startDate: string,
+    endDate: string
+): Promise<{ cafe: number; retail: number }> {
+    const { data, error } = await supabase
+        .from("staff_shifts")
+        .select("labour_cost, business_side")
+        .gte("shift_date", startDate)
+        .lte("shift_date", endDate);
+
+    if (error) throw error;
+    let cafe = 0;
+    let retail = 0;
+    for (const s of data || []) {
+        const cost = Number(s.labour_cost) || 0;
+        if (s.business_side === "Cafe") cafe += cost;
+        else retail += cost;
+    }
+    return { cafe, retail };
+}
+
 export interface DailyLabour {
     date: string;
     labour_cost: number;
@@ -223,6 +245,7 @@ export function aggregateStats(rows: DailyStats[]) {
     const totalGrossSales = open.reduce((s, r) => s + (r.total_gross_sales || 0), 0);
     const totalTransactions = open.reduce((s, r) => s + r.total_transactions, 0);
     const totalItems = open.reduce((s, r) => s + r.total_items, 0);
+    const totalCustomers = open.reduce((s, r) => s + (r.total_unique_customers || 0), 0);
     const memberTx = open.reduce((s, r) => s + r.member_transactions, 0);
     const memberSales = open.reduce((s, r) => s + r.member_net_sales, 0);
     const avgSale = totalTransactions > 0 ? totalNetSales / totalTransactions : 0;
@@ -233,6 +256,7 @@ export function aggregateStats(rows: DailyStats[]) {
         transactions: totalTransactions,
         avgSale,
         totalItems,
+        totalCustomers,
         memberTx,
         memberSales,
         memberTxRatio: totalTransactions > 0 ? (memberTx / totalTransactions) * 100 : 0,
@@ -249,14 +273,18 @@ export function aggregateCategoryStats(rows: CategoryDailyData[]) {
     let retailNetSales = 0;
     let cafeGrossSales = 0;
     let retailGrossSales = 0;
+    let cafeTransactions = 0;
+    let retailTransactions = 0;
 
     for (const r of rows) {
         if (r.category === "Cafe") {
             cafeNetSales += r.total_net_sales;
             cafeGrossSales += r.total_gross_sales;
+            cafeTransactions += r.transaction_count;
         } else {
             retailNetSales += r.total_net_sales;
             retailGrossSales += r.total_gross_sales;
+            retailTransactions += r.transaction_count;
         }
     }
 
@@ -265,6 +293,8 @@ export function aggregateCategoryStats(rows: CategoryDailyData[]) {
         retailNetSales,
         cafeGrossSales,
         retailGrossSales,
+        cafeTransactions,
+        retailTransactions,
     };
 }
 

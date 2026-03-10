@@ -20,7 +20,7 @@ import type { DailyStats, CategoryDailyData, DailyLabour } from "@/lib/queries/o
 
 export type MetricKey =
     | "net_sales"
-    | "gross_sales"
+    | "customers"
     | "transactions"
     | "avg_sale"
     | "real_profit_pct"
@@ -46,11 +46,11 @@ const METRICS: Record<MetricKey, MetricDef> = {
         color: "#6B7355",
         compColor: "#E07A5F",
     },
-    gross_sales: {
-        label: "Gross Sales",
-        shortLabel: "Gross Sales",
-        formatter: (v) => formatCurrency(v),
-        yFormatter: (v) => `$${(v / 1000).toFixed(1)}K`,
+    customers: {
+        label: "Customers",
+        shortLabel: "Customers",
+        formatter: (v) => formatNumber(v),
+        yFormatter: (v) => formatNumber(v),
         color: "#6B7355",
         compColor: "#E07A5F",
     },
@@ -90,7 +90,7 @@ const METRICS: Record<MetricKey, MetricDef> = {
 
 const METRIC_ORDER: MetricKey[] = [
     "net_sales",
-    "gross_sales",
+    "customers",
     "transactions",
     "avg_sale",
     "real_profit_pct",
@@ -175,7 +175,7 @@ export function MetricTimeSeriesChart({
     effectiveMargin,
 }: MetricTimeSeriesChartProps) {
     const [metric, setMetric] = useState<MetricKey>("net_sales");
-    const [activeTrends, setActiveTrends] = useState<Set<TrendType>>(new Set());
+    const [activeTrends, setActiveTrends] = useState<Set<TrendType>>(new Set(["ma_3mo"]));
     const [side, setSide] = useState<SideType>("all");
     const def = METRICS[metric];
 
@@ -195,7 +195,7 @@ export function MetricTimeSeriesChart({
         const labourMap = new Map<string, number>();
         for (const l of historicalLabour) labourMap.set(l.date, l.labour_cost);
 
-        if (side !== "all" && metric !== "labour_pct" && metric !== "real_profit_pct") {
+        if (side !== "all" && metric !== "labour_pct" && metric !== "real_profit_pct" && metric !== "customers") {
             // Side-filtered: use category data
             const targetSide = side === "cafe" ? "Cafe" : "Retail";
             const dayAgg = new Map<string, { net: number; gross: number; txn: number }>();
@@ -211,7 +211,6 @@ export function MetricTimeSeriesChart({
                 let value = 0;
                 switch (metric) {
                     case "net_sales": value = agg.net; break;
-                    case "gross_sales": value = agg.gross; break;
                     case "transactions": value = agg.txn; break;
                     case "avg_sale": value = agg.txn > 0 ? agg.net / agg.txn : 0; break;
                 }
@@ -224,7 +223,7 @@ export function MetricTimeSeriesChart({
                 const lc = labourMap.get(row.date) || 0;
                 switch (metric) {
                     case "net_sales": value = row.total_net_sales; break;
-                    case "gross_sales": value = row.total_gross_sales || 0; break;
+                    case "customers": value = row.total_unique_customers || 0; break;
                     case "transactions": value = row.total_transactions; break;
                     case "avg_sale": value = row.total_transactions > 0 ? row.total_net_sales / row.total_transactions : 0; break;
                     case "real_profit_pct":
@@ -280,13 +279,11 @@ export function MetricTimeSeriesChart({
         }));
     }, [chartData, compChartData, activeTrends, computeAvg]);
 
-    // ── Trend badge computation (prefer linear if active, else ma3) ──
+    // ── Trend badge computation (only for 3mo avg, not linear) ──
     const trendBadge = useMemo(() => {
-        if (activeTrends.size === 0) return null;
-        const key = activeTrends.has("linear") ? "trend_linear" : "trend_ma3";
-        const trendLabel = activeTrends.has("linear") ? `${sideLabel(side)}trend (period)` : `${sideLabel(side)}3mo avg`;
+        if (!activeTrends.has("ma_3mo")) return null;
         const trendVals = mergedData
-            .map((d: Record<string, unknown>) => d[key] as number | null | undefined)
+            .map((d: Record<string, unknown>) => d.trend_ma3 as number | null | undefined)
             .filter((v): v is number => v !== null && v !== undefined);
         if (trendVals.length < 2) return null;
         const first = trendVals[0];
@@ -294,7 +291,7 @@ export function MetricTimeSeriesChart({
         const totalChange = last - first;
         const pctChange = first !== 0 ? (totalChange / first) * 100 : 0;
         const direction = totalChange > 0 ? "↑" : totalChange < 0 ? "↓" : "→";
-        return { direction, pctChange: Math.abs(pctChange), isPositive: totalChange > 0, label: trendLabel };
+        return { direction, pctChange: Math.abs(pctChange), isPositive: totalChange > 0, label: `${sideLabel(side)}3mo avg` };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTrends, mergedData, side]);
 
@@ -538,7 +535,7 @@ function buildMetricData(
     for (const l of labour) labourMap.set(l.date, l.labour_cost);
 
     // For side-filtered sales metrics, build from categoryData
-    if (side !== "all" && metric !== "labour_pct" && metric !== "real_profit_pct") {
+    if (side !== "all" && metric !== "labour_pct" && metric !== "real_profit_pct" && metric !== "customers") {
         const targetSide = side === "cafe" ? "Cafe" : "Retail";
         const dayAgg = new Map<string, { date: string; net: number; gross: number; txn: number }>();
         for (const r of categoryData) {
@@ -555,7 +552,6 @@ function buildMetricData(
                 let value = 0;
                 switch (metric) {
                     case "net_sales": value = agg.net; break;
-                    case "gross_sales": value = agg.gross; break;
                     case "transactions": value = agg.txn; break;
                     case "avg_sale": value = agg.txn > 0 ? Math.round((agg.net / agg.txn) * 100) / 100 : 0; break;
                 }
@@ -571,8 +567,8 @@ function buildMetricData(
             case "net_sales":
                 value = row.total_net_sales;
                 break;
-            case "gross_sales":
-                value = row.total_gross_sales || 0;
+            case "customers":
+                value = row.total_unique_customers || 0;
                 break;
             case "transactions":
                 value = row.total_transactions;

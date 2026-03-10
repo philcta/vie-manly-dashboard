@@ -178,7 +178,7 @@ function extractValue(r: MemberDailyRow, metric: MemberMetricKey, side: MemberSi
 
 export function MemberMetricChart({ data, compData, historicalData }: MemberMetricChartProps) {
     const [metric, setMetric] = useState<MemberMetricKey>("net_sales");
-    const [activeTrends, setActiveTrends] = useState<Set<TrendType>>(new Set());
+    const [activeTrends, setActiveTrends] = useState<Set<TrendType>>(new Set(["ma_3mo"]));
     const [side, setSide] = useState<MemberSideType>("all");
     const def = METRICS[metric];
 
@@ -245,13 +245,11 @@ export function MemberMetricChart({ data, compData, historicalData }: MemberMetr
         }));
     }, [chartData, compChartData, activeTrends, computeAvg]);
 
-    // ── Trend badge (prefer linear if active, else ma3) ──
+    // ── Trend badge (only for 3mo avg, not linear) ──
     const trendBadge = useMemo(() => {
-        if (activeTrends.size === 0) return null;
-        const key = activeTrends.has("linear") ? "trend_linear" : "trend_ma3";
-        const trendLabel = activeTrends.has("linear") ? `${sideLabel(side)}trend (period)` : `${sideLabel(side)}3mo avg`;
+        if (!activeTrends.has("ma_3mo")) return null;
         const trendVals = mergedData
-            .map(d => (d as Record<string, unknown>)[key] as number | null | undefined)
+            .map(d => (d as Record<string, unknown>).trend_ma3 as number | null | undefined)
             .filter((v): v is number => v !== null && v !== undefined);
         if (trendVals.length < 2) return null;
         const first = trendVals[0];
@@ -259,7 +257,7 @@ export function MemberMetricChart({ data, compData, historicalData }: MemberMetr
         const totalChange = last - first;
         const pctChange = first !== 0 ? (totalChange / first) * 100 : 0;
         const direction = totalChange > 0 ? "↑" : totalChange < 0 ? "↓" : "→";
-        return { direction, pctChange: Math.abs(pctChange), isPositive: totalChange > 0, label: trendLabel };
+        return { direction, pctChange: Math.abs(pctChange), isPositive: totalChange > 0, label: `${sideLabel(side)}3mo avg` };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTrends, mergedData, side]);
 
