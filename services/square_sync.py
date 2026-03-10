@@ -777,7 +777,8 @@ def run_full_sync(hours_back: int = 2) -> dict:
         if not tx_df.empty:
             tx_df = enrich_transaction_categories(tx_df)
 
-            # Build row_key for deduplication (matching your existing logic)
+            # Build row_key for deduplication using stable hash
+            import hashlib
             base_cols = [
                 "Transaction ID", "Datetime", "Item", "Net Sales",
                 "Gross Sales", "Discounts", "Qty", "Customer ID",
@@ -788,8 +789,16 @@ def run_full_sync(hours_back: int = 2) -> dict:
                     tx_df[c] = ""
 
             tx_df["__base"] = tx_df[base_cols].astype(str).agg("||".join, axis=1)
+            # Use stable cumcount within each order (sorted by item+modifiers
+            # for deterministic ordering regardless of API fetch order)
+            tx_df = tx_df.sort_values(["Transaction ID", "Item", "Modifiers Applied", "Datetime"])
             tx_df["__dup_idx"] = tx_df.groupby(["Transaction ID", "__base"]).cumcount()
-            tx_df["__row_key"] = tx_df["__base"] + "||" + tx_df["__dup_idx"].astype(str)
+            tx_df["__row_key"] = tx_df.apply(
+                lambda r: hashlib.md5(
+                    (r["__base"] + "||" + str(r["__dup_idx"])).encode()
+                ).hexdigest(),
+                axis=1,
+            )
             tx_df = tx_df.drop(columns=["__base", "__dup_idx"])
 
             results["transactions"] = upsert_transactions(tx_df)
@@ -906,6 +915,7 @@ def run_smart_sync() -> dict:
         if not tx_df.empty:
             tx_df = enrich_transaction_categories(tx_df)
 
+            import hashlib
             base_cols = [
                 "Transaction ID", "Datetime", "Item", "Net Sales",
                 "Gross Sales", "Discounts", "Qty", "Customer ID",
@@ -916,8 +926,14 @@ def run_smart_sync() -> dict:
                     tx_df[c] = ""
 
             tx_df["__base"] = tx_df[base_cols].astype(str).agg("||".join, axis=1)
+            tx_df = tx_df.sort_values(["Transaction ID", "Item", "Modifiers Applied", "Datetime"])
             tx_df["__dup_idx"] = tx_df.groupby(["Transaction ID", "__base"]).cumcount()
-            tx_df["__row_key"] = tx_df["__base"] + "||" + tx_df["__dup_idx"].astype(str)
+            tx_df["__row_key"] = tx_df.apply(
+                lambda r: hashlib.md5(
+                    (r["__base"] + "||" + str(r["__dup_idx"])).encode()
+                ).hexdigest(),
+                axis=1,
+            )
             tx_df = tx_df.drop(columns=["__base", "__dup_idx"])
 
             results["transactions"] = upsert_transactions(tx_df)
