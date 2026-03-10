@@ -66,6 +66,18 @@ jobs:
         run: |
           python scripts/scheduled_sync.py --lookback ${{ github.event.inputs.lookback_days || '14' }}
 
+      - name: Sync staff shifts (last 3 days)
+        if: ${{ github.event.inputs.mode == '' || github.event.inputs.mode == 'scheduled' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SQUARE_ACCESS_TOKEN: ${{ secrets.SQUARE_ACCESS_TOKEN }}
+          SQUARE_LOCATION_ID: ${{ secrets.SQUARE_LOCATION_ID }}
+          SQUARE_ENVIRONMENT: production
+          PYTHONIOENCODING: utf-8
+        run: |
+          python scripts/sync_shifts.py --days 3
+
       - name: Run backfill only
         if: ${{ github.event.inputs.mode == 'backfill-only' }}
         env:
