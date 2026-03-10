@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { Tooltip as ChartTooltip } from "recharts";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
     Area,
     Line,
     XAxis,
     YAxis,
     CartesianGrid,
-    Tooltip,
     ResponsiveContainer,
     Legend,
     ComposedChart,
@@ -93,13 +94,11 @@ const SIDE_OPTIONS: { value: MemberSideType; label: string }[] = [
 
 // ── Trend line types ────────────────────────────────────────────
 
-type TrendType = "none" | "linear" | "ma_3mo" | "ma_6mo";
+type TrendType = "linear" | "ma_3mo";
 
-const TREND_OPTIONS: { value: TrendType; label: string; icon: string }[] = [
-    { value: "none", label: "Raw", icon: "" },
-    { value: "linear", label: "Trend", icon: "↗" },
+const TREND_OPTIONS: { value: TrendType; label: string; icon: string; tip?: string }[] = [
+    { value: "linear", label: "Trend", icon: "↗", tip: "Best fit trend for period" },
     { value: "ma_3mo", label: "3mo Avg", icon: "〰" },
-    { value: "ma_6mo", label: "6mo Avg", icon: "〰" },
 ];
 
 // ── Trend math ──────────────────────────────────────────────────
@@ -179,7 +178,7 @@ function extractValue(r: MemberDailyRow, metric: MemberMetricKey, side: MemberSi
 
 export function MemberMetricChart({ data, compData, historicalData }: MemberMetricChartProps) {
     const [metric, setMetric] = useState<MemberMetricKey>("net_sales");
-    const [trend, setTrend] = useState<TrendType>("none");
+    const [activeTrends, setActiveTrends] = useState<Set<TrendType>>(new Set());
     const [side, setSide] = useState<MemberSideType>("all");
     const def = METRICS[metric];
 
@@ -229,30 +228,30 @@ export function MemberMetricChart({ data, compData, historicalData }: MemberMetr
         };
     }, [historicalValueMap]);
 
-    // ── Merge data + trend ──
+    // ── Merge data + trends ──
     const mergedData = useMemo(() => {
-        const windowDays = trend === "ma_3mo" ? 90 : trend === "ma_6mo" ? 180 : 0;
         const values = chartData.map(d => d.value);
-        let trendValues: (number | null)[] | null = null;
 
-        if (trend === "linear") {
-            trendValues = linearRegression(values);
-        } else if (trend === "ma_3mo" || trend === "ma_6mo") {
-            trendValues = chartData.map(d => computeAvg(d.date, windowDays));
-        }
+        const linearValues = activeTrends.has("linear") ? linearRegression(values) : null;
+        const ma3Values = activeTrends.has("ma_3mo")
+            ? chartData.map(d => computeAvg(d.date, 90))
+            : null;
 
         return chartData.map((row, i) => ({
             ...row,
             comparison: compChartData[i]?.value,
-            trend: trendValues ? trendValues[i] : undefined,
+            trend_linear: linearValues ? linearValues[i] : undefined,
+            trend_ma3: ma3Values ? ma3Values[i] : undefined,
         }));
-    }, [chartData, compChartData, trend, computeAvg]);
+    }, [chartData, compChartData, activeTrends, computeAvg]);
 
-    // ── Trend badge ──
+    // ── Trend badge (prefer linear if active, else ma3) ──
     const trendBadge = useMemo(() => {
-        if (trend === "none") return null;
+        if (activeTrends.size === 0) return null;
+        const key = activeTrends.has("linear") ? "trend_linear" : "trend_ma3";
+        const trendLabel = activeTrends.has("linear") ? `${sideLabel(side)}trend (period)` : `${sideLabel(side)}3mo avg`;
         const trendVals = mergedData
-            .map(d => d.trend as number | null | undefined)
+            .map(d => (d as Record<string, unknown>)[key] as number | null | undefined)
             .filter((v): v is number => v !== null && v !== undefined);
         if (trendVals.length < 2) return null;
         const first = trendVals[0];
@@ -260,15 +259,9 @@ export function MemberMetricChart({ data, compData, historicalData }: MemberMetr
         const totalChange = last - first;
         const pctChange = first !== 0 ? (totalChange / first) * 100 : 0;
         const direction = totalChange > 0 ? "↑" : totalChange < 0 ? "↓" : "→";
-        const suffix = trend === "linear" ? " (period)" : "";
-        const label = trend === "linear"
-            ? `${sideLabel(side)}trend${suffix}`
-            : trend === "ma_3mo"
-                ? `${sideLabel(side)}3mo avg`
-                : `${sideLabel(side)}6mo avg`;
-        return { direction, pctChange: Math.abs(pctChange), isPositive: totalChange > 0, label };
+        return { direction, pctChange: Math.abs(pctChange), isPositive: totalChange > 0, label: trendLabel };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [trend, mergedData, side]);
+    }, [activeTrends, mergedData, side]);
 
     if (mergedData.length === 0) {
         return (
@@ -311,20 +304,34 @@ export function MemberMetricChart({ data, compData, historicalData }: MemberMetr
                     </>
                 )}
 
-                {/* Trend pills */}
+                {/* Trend pills (multi-select) */}
                 <div className="flex items-center gap-1 rounded-lg border border-border bg-background p-0.5">
-                    {TREND_OPTIONS.map((opt) => (
-                        <button
-                            key={opt.value}
-                            onClick={() => setTrend(opt.value)}
-                            className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-all duration-200 cursor-pointer whitespace-nowrap ${trend === opt.value
-                                ? "bg-[#3B4A2A] text-white shadow-sm"
-                                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                                }`}
-                        >
-                            {opt.icon && <span className="mr-1">{opt.icon}</span>}{opt.label}
-                        </button>
-                    ))}
+                    {TREND_OPTIONS.map((opt) => {
+                        const isActive = activeTrends.has(opt.value);
+                        const toggle = () => setActiveTrends(prev => {
+                            const next = new Set(prev);
+                            if (next.has(opt.value)) next.delete(opt.value); else next.add(opt.value);
+                            return next;
+                        });
+                        const btn = (
+                            <button
+                                key={opt.value}
+                                onClick={toggle}
+                                className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-all duration-200 cursor-pointer whitespace-nowrap ${isActive
+                                    ? "bg-[#3B4A2A] text-white shadow-sm"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                                    }`}
+                            >
+                                {opt.icon && <span className="mr-1">{opt.icon}</span>}{opt.label}
+                            </button>
+                        );
+                        return opt.tip ? (
+                            <Tooltip key={opt.value}>
+                                <TooltipTrigger asChild>{btn}</TooltipTrigger>
+                                <TooltipContent side="bottom" sideOffset={6}>{opt.tip}</TooltipContent>
+                            </Tooltip>
+                        ) : <span key={opt.value}>{btn}</span>;
+                    })}
                 </div>
 
                 <div className="w-px h-5 bg-border" />
@@ -383,26 +390,27 @@ export function MemberMetricChart({ data, compData, historicalData }: MemberMetr
                         <CartesianGrid strokeDasharray="3 3" stroke="#F0F0EE" vertical={false} />
                         <XAxis dataKey="label" tick={{ fill: "#8A8A8A", fontSize: 11 }} axisLine={{ stroke: "#EAEAE8" }} tickLine={false} />
                         <YAxis tick={{ fill: "#8A8A8A", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={def.yFormatter} />
-                        <Tooltip
+                        <ChartTooltip
                             contentStyle={tooltipStyle}
                             formatter={(value: number, name: string) => {
-                                const trendLabel = TREND_OPTIONS.find(o => o.value === trend)?.label ?? "Trend";
-                                const nameMap: Record<string, string> = { value: "Current", comparison: "Prior", trend: trendLabel };
+                                const nameMap: Record<string, string> = { value: "Current", comparison: "Prior", trend_linear: "Trend", trend_ma3: "3mo Avg" };
                                 return [def.formatter(value), nameMap[name] || name];
                             }}
                         />
                         <Legend
                             formatter={(v: string) => {
-                                const trendLabel = TREND_OPTIONS.find(o => o.value === trend)?.label ?? "Trend";
-                                const nameMap: Record<string, string> = { value: "Current period", comparison: "Prior period", trend: trendLabel };
+                                const nameMap: Record<string, string> = { value: "Current period", comparison: "Prior period", trend_linear: "Trend", trend_ma3: "3mo Avg" };
                                 return nameMap[v] || v;
                             }}
                             wrapperStyle={{ fontSize: 12 }}
                         />
                         <Area type="monotone" dataKey="comparison" stroke={def.compColor} strokeWidth={1.5} strokeDasharray="5 5" strokeOpacity={0.6} fill="url(#memGradComp)" animationDuration={800} />
                         <Area type="monotone" dataKey="value" stroke={def.color} strokeWidth={2.5} fill="url(#memGradMain)" animationDuration={800} />
-                        {trend !== "none" && (
-                            <Line type={trend === "linear" ? "linear" : "monotone"} dataKey="trend" stroke="#3B4A2A" strokeWidth={2} strokeDasharray="8 4" dot={false} connectNulls animationDuration={400} />
+                        {activeTrends.has("linear") && (
+                            <Line type="linear" dataKey="trend_linear" stroke="#3B4A2A" strokeWidth={2} strokeDasharray="8 4" dot={false} connectNulls animationDuration={400} />
+                        )}
+                        {activeTrends.has("ma_3mo") && (
+                            <Line type="monotone" dataKey="trend_ma3" stroke="#7C6F5B" strokeWidth={2} strokeDasharray="4 3" dot={false} connectNulls animationDuration={400} />
                         )}
                     </ComposedChart>
                 </ResponsiveContainer>
