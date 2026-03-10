@@ -178,6 +178,7 @@ COLUMN_MAP_TO_DISPLAY = {
     "unit": "Unit",
     "source_date": "source_date",
     "stock_on_hand": "Stock on Hand",
+    "default_vendor": "Default Vendor",
 
     # Members
     "square_customer_id": "Square Customer ID",

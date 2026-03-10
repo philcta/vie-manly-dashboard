@@ -334,15 +334,40 @@ def sync_inventory() -> pd.DataFrame:
     client = get_square_client()
     location_id = get_location_id()
 
-    # --- Step 1: Get all catalog items ---
     # --- Step 1: Get all catalog items (SyncPager auto-paginates) ---
     all_items = list(client.catalog.list(types="ITEM"))
+
+    # --- Step 1b: Fetch all vendors from Square Vendors API ---
+    import requests as _requests
+    _sq_token = os.getenv("SQUARE_ACCESS_TOKEN", "")
+    _sq_headers = {
+        "Authorization": f"Bearer {_sq_token}",
+        "Content-Type": "application/json",
+        "Square-Version": "2025-01-23",
+    }
+    vendor_names = {}  # vendor_id -> vendor_name
+    try:
+        cursor = None
+        while True:
+            body = {"filter": {"status": ["ACTIVE"]}}
+            if cursor:
+                body["cursor"] = cursor
+            vr = _requests.post("https://connect.squareup.com/v2/vendors/search", headers=_sq_headers, json=body)
+            vdata = vr.json()
+            for v in vdata.get("vendors", []):
+                vendor_names[v["id"]] = v.get("name", "")
+            cursor = vdata.get("cursor")
+            if not cursor:
+                break
+        print(f"Loaded {len(vendor_names)} vendors from Square")
+    except Exception as e:
+        print(f"Warning: Could not fetch vendors: {e}")
 
     # --- Step 2: Build item -> variation mapping ---
     variation_ids = []
     inv_catalog_map = {}  # variation_id -> {product_name, sku, category, price, ...}
 
-    # First, get all CATEGORY names for resolving reporting_category
+    # Get all CATEGORY names for resolving reporting_category
     cat_names = {}
     for obj in client.catalog.list(types="CATEGORY"):
         cat_names[obj.id] = getattr(obj.category_data, "name", "") if obj.category_data else ""
@@ -372,8 +397,9 @@ def sync_inventory() -> pd.DataFrame:
             price_money = var_data.price_money
             price = int(price_money.amount) / 100 if price_money and price_money.amount else 0
 
-            # Unit cost — try direct default_unit_cost first, then vendor infos
+            # Unit cost + vendor — try direct default_unit_cost first, then vendor infos
             unit_cost = 0
+            vendor_name = ""
             try:
                 # Direct field on variation (most reliable)
                 duc = getattr(var_data, 'default_unit_cost', None)
@@ -382,13 +408,18 @@ def sync_inventory() -> pd.DataFrame:
                     if amt:
                         unit_cost = int(amt) / 100
 
-                # Fallback: vendor info price
-                if unit_cost == 0:
-                    vendor_infos = getattr(var_data, 'item_variation_vendor_infos', None) or []
-                    if vendor_infos:
-                        vi = vendor_infos[0]
-                        vi_data = vi.item_variation_vendor_info_data if hasattr(vi, 'item_variation_vendor_info_data') else vi.get('item_variation_vendor_info_data', {})
-                        if vi_data:
+                # Vendor info: extract vendor name + fallback cost
+                vi_list = getattr(var_data, 'item_variation_vendor_infos', None) or []
+                if vi_list:
+                    vi = vi_list[0]
+                    vi_data = vi.item_variation_vendor_info_data if hasattr(vi, 'item_variation_vendor_info_data') else vi.get('item_variation_vendor_info_data', {})
+                    if vi_data:
+                        # Resolve vendor name
+                        vid = vi_data.vendor_id if hasattr(vi_data, 'vendor_id') else vi_data.get('vendor_id', '')
+                        if vid:
+                            vendor_name = vendor_names.get(vid, "")
+                        # Fallback cost from vendor price
+                        if unit_cost == 0:
                             pm = vi_data.price_money if hasattr(vi_data, 'price_money') else vi_data.get('price_money', {})
                             if pm:
                                 amt = pm.amount if hasattr(pm, 'amount') else pm.get('amount', 0)
@@ -405,6 +436,7 @@ def sync_inventory() -> pd.DataFrame:
                 "tax_gst": "Y" if has_gst else "N",
                 "default_unit_cost": unit_cost,
                 "unit": var_data.measurement_unit_id or "",
+                "default_vendor": vendor_name,
             }
             variation_ids.append(var_id)
 
@@ -447,6 +479,7 @@ def sync_inventory() -> pd.DataFrame:
             "Unit": info["unit"],
             "source_date": today,
             "Stock on Hand": qty,
+            "Default Vendor": info["default_vendor"],
         })
 
     df = pd.DataFrame(rows)
