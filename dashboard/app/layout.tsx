@@ -1,16 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import AppSidebar from "@/components/app-sidebar";
+import DashboardShell from "@/components/dashboard-shell";
 import { TooltipProvider } from "@/components/ui/tooltip";
-
-/**
- * Per ui-ux-pro-max skill:
- * - Use expressive display font + restrained body font (not Inter/Roboto defaults)
- * - frontend-design: avoid system/AI-default fonts
- *
- * We use Playfair Display (serif, for the brand logo feel) + DM Sans (body).
- * DM Sans is a geometric sans that pairs well with serif headings — warmer than Inter.
- */
 
 export const metadata: Metadata = {
   title: "VIE. MANLY — Dashboard",
@@ -44,14 +35,10 @@ export default function RootLayout({
         }}
       >
         <TooltipProvider>
-          <div className="flex min-h-screen">
-            <AppSidebar />
-            <main className="ml-[220px] flex-1 p-8 bg-background min-h-screen">
-              {children}
-            </main>
-          </div>
+          <DashboardShell>{children}</DashboardShell>
         </TooltipProvider>
       </body>
     </html>
   );
 }
+

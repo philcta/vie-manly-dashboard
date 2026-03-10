@@ -81,26 +81,32 @@ export async function fetchDayStats(date: string): Promise<DailyStats | null> {
  */
 export async function fetchHourlyData(date: string): Promise<HourlyData[]> {
     // Query transactions using the date text field (avoids full table scan)
+    // Use 'time' column (TEXT, Sydney local time) instead of 'datetime'
+    // because datetime stores Sydney time with +00 offset, causing
+    // double-conversion when parsed by JS Date().
     const { data: txns, error: txErr } = await supabase
         .from("transactions")
-        .select("datetime, net_sales, transaction_id")
+        .select("time, net_sales, gross_sales, transaction_id")
         .eq("date", date)
-        .limit(2000);
+        .limit(5000);
 
     if (txErr) {
         console.error("Hourly data query failed:", txErr);
         return [];
     }
 
-    const hourMap = new Map<number, { net_sales: number; txIds: Set<string> }>();
+    const hourMap = new Map<number, { net_sales: number; gross_sales: number; txIds: Set<string> }>();
     for (const t of txns || []) {
-        if (!t.datetime) continue;
-        const hour = new Date(t.datetime).getHours();
+        if (!t.time) continue;
+        // time is "HH:MM:SS" in Sydney local time
+        const hour = parseInt(t.time.split(":")[0], 10);
+        if (isNaN(hour)) continue;
         if (!hourMap.has(hour)) {
-            hourMap.set(hour, { net_sales: 0, txIds: new Set() });
+            hourMap.set(hour, { net_sales: 0, gross_sales: 0, txIds: new Set() });
         }
         const entry = hourMap.get(hour)!;
         entry.net_sales += t.net_sales || 0;
+        entry.gross_sales += t.gross_sales || 0;
         if (t.transaction_id) entry.txIds.add(t.transaction_id);
     }
 
@@ -173,6 +179,37 @@ export async function fetchDailyLabour(
     return Array.from(map.entries())
         .map(([date, labour_cost]) => ({ date, labour_cost: Math.round(labour_cost * 100) / 100 }))
         .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export interface CategorySalesTotal {
+    category: string;
+    net_sales: number;
+}
+
+/** Fetch per-category net sales totals from raw transactions.
+ *  Returns the original Square category names (e.g. "Tea", "Cafe Drinks")
+ *  NOT the pre-classified "Cafe"/"Retail" from the RPC. */
+export async function fetchCategorySalesTotals(
+    startDate: string,
+    endDate: string
+): Promise<CategorySalesTotal[]> {
+    const { data, error } = await supabase
+        .from("transactions")
+        .select("category, net_sales")
+        .gte("date", startDate)
+        .lte("date", endDate);
+
+    if (error) throw error;
+
+    // Aggregate net_sales per category
+    const map = new Map<string, number>();
+    for (const row of data || []) {
+        const cat = row.category || "(Uncategorized)";
+        map.set(cat, (map.get(cat) || 0) + (Number(row.net_sales) || 0));
+    }
+
+    return Array.from(map.entries())
+        .map(([category, net_sales]) => ({ category, net_sales }));
 }
 
 /**

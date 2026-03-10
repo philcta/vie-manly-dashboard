@@ -122,6 +122,20 @@ export async function fetchMemberPeriodTable(
     }));
 }
 
+/** Fetch all-time per-member spending (not period-filtered) via RPC */
+export async function fetchMemberAllTimeTable(): Promise<MemberPeriodRow[]> {
+    const { data, error } = await supabase.rpc("get_member_all_time_table");
+
+    if (error) throw error;
+
+    return (data || []).map((r: Record<string, unknown>) => ({
+        customer_id: String(r.customer_id || ""),
+        total_spent: Number(r.total_spent) || 0,
+        visits: Number(r.visits) || 0,
+        avg_spend: Number(r.avg_spend) || 0,
+    }));
+}
+
 /** Build members table with period-specific spending + lifetime loyalty */
 export function buildPeriodMembers(
     members: Member[],
@@ -147,7 +161,13 @@ export function buildPeriodMembers(
             const member = memberMap.get(s.customer_id);
             const loy = loyaltyMap.get(s.customer_id);
             const latest = latestByMember.get(s.customer_id);
-            const daysSince = latest?.days_since_last_visit ?? 999;
+            // Compute days since last visit dynamically from the date of the
+            // last member_daily_stats row, not the stale snapshot column.
+            const daysSince = latest?.date
+                ? Math.max(0, Math.floor(
+                    (Date.now() - new Date(latest.date + "T00:00:00+11:00").getTime()) / 86400000
+                ))
+                : 999;
 
             let status: "Active" | "Cooling" | "At Risk" | "Churned" = "Active";
             if (daysSince > 45) status = "Churned";
@@ -159,6 +179,7 @@ export function buildPeriodMembers(
                 name: member
                     ? `${member.first_name || ""} ${member.last_name || ""}`.trim() || "Unknown"
                     : "Unknown",
+                phone: member?.phone_number || null,
                 totalSpent: s.total_spent,
                 visits: s.visits,
                 avgSpend: s.avg_spend,
@@ -256,36 +277,28 @@ export async function fetchMemberLoyalty(): Promise<MemberLoyalty[]> {
     return all;
 }
 
-/** Fetch latest member daily stats — only the most recent row per member.
- *  Uses an RPC if available, otherwise fetches recent rows and deduplicates client-side.
+/** Fetch latest member daily stats — the most recent row per member (all time).
+ *  Uses the get_latest_member_stats RPC which does DISTINCT ON in SQL
+ *  so we don't miss members whose last visit was more than 14 days ago.
  */
 export async function fetchLatestMemberStats(): Promise<MemberDailyStats[]> {
-    // Fetch recent stats (last 14 days should capture latest for all active members)
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 14);
-    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    const { data, error } = await supabase.rpc("get_latest_member_stats");
 
-    const all: MemberDailyStats[] = [];
-    const PAGE = 1000;
-    let from = 0;
-    while (true) {
-        const { data, error } = await supabase
-            .from("member_daily_stats")
-            .select("*")
-            .gte("date", cutoffStr)
-            .order("date", { ascending: false })
-            .range(from, from + PAGE - 1);
-
-        if (error) throw error;
-        if (!data || data.length === 0) break;
-        all.push(...data);
-        if (data.length < PAGE) break;
-        from += PAGE;
-    }
-    return all;
+    if (error) throw error;
+    return (data || []) as MemberDailyStats[];
 }
 
-/** Fetch daily store stats for member/non-member ratio charts */
+/** Fetch set of customer IDs that have actually transacted (have member_daily_stats).
+ *  Used to filter out loyalty-only members who never purchased.
+ */
+export async function fetchTransactingMemberIds(): Promise<Set<string>> {
+    const { data, error } = await supabase.rpc("get_transacting_member_ids");
+    if (error) throw error;
+    return new Set((data || []) as string[]);
+}
+
+/** Fetch daily store stats for member/non-member charts.
+ *  All member/non-member splits are pre-computed in daily_store_stats. */
 export async function fetchMemberRevenueSeries(
     startDate: string,
     endDate: string
@@ -293,7 +306,7 @@ export async function fetchMemberRevenueSeries(
     const { data, error } = await supabase
         .from("daily_store_stats")
         .select(
-            "date, member_net_sales, non_member_net_sales, member_tx_ratio, member_sales_ratio, member_items_ratio"
+            "date, member_net_sales, non_member_net_sales, member_transactions, non_member_transactions, member_unique_customers, member_tx_ratio, member_sales_ratio"
         )
         .gte("date", startDate)
         .lte("date", endDate)
@@ -302,6 +315,15 @@ export async function fetchMemberRevenueSeries(
 
     if (error) throw error;
     return data || [];
+}
+
+/** Fetch extended historical member series (6-month lookback) for moving averages.
+ *  Uses same pre-computed daily_store_stats — no extra computation needed. */
+export async function fetchMemberHistoricalSeries(
+    startDate: string,
+    endDate: string
+) {
+    return fetchMemberRevenueSeries(startDate, endDate);
 }
 
 /** Aggregate member KPIs */

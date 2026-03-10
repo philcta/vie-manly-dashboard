@@ -707,6 +707,7 @@ def _update_daily_store_stats(tx_df: pd.DataFrame):
         nonmember_transactions = nonmember_tx["Transaction ID"].nunique() if "Transaction ID" in nonmember_tx.columns and not nonmember_tx.empty else 0
         
         total_sales = pd.to_numeric(day_tx["Net Sales"], errors="coerce").sum()
+        total_gross = pd.to_numeric(day_tx["Gross Sales"], errors="coerce").sum()
         member_sales = pd.to_numeric(member_tx["Net Sales"], errors="coerce").sum() if not member_tx.empty else 0
         nonmember_sales = pd.to_numeric(nonmember_tx["Net Sales"], errors="coerce").sum() if not nonmember_tx.empty else 0
         
@@ -721,6 +722,7 @@ def _update_daily_store_stats(tx_df: pd.DataFrame):
             "date": date_str,
             "total_transactions": int(total_transactions),
             "total_net_sales": round(float(total_sales), 2),
+            "total_gross_sales": round(float(total_gross), 2),
             "total_items": int(total_items),
             "total_unique_customers": int(total_unique),
             "member_transactions": int(member_transactions),

@@ -81,7 +81,7 @@ export default function SettingsPage() {
 
             {/* General */}
             <AccordionSection title="General" defaultOpen>
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     <div>
                         <label className={labelStyle}>Store Name</label>
                         <input type="text" value={storeName} onChange={(e) => setStoreName(e.target.value)} className={inputStyle} />

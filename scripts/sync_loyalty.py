@@ -1,5 +1,6 @@
 """Sync Square Loyalty accounts → Supabase member_loyalty table."""
 import sys, os, json, urllib.request
+from datetime import datetime, timezone
 sys.stdout.reconfigure(encoding='utf-8')
 from dotenv import load_dotenv
 load_dotenv()
@@ -53,16 +54,19 @@ for i in range(0, len(all_accounts), BATCH_SIZE):
     batch = all_accounts[i:i+BATCH_SIZE]
     rows = []
     for a in batch:
+        balance = a.get('balance', 0)
+        lifetime = a.get('lifetime_points', 0)
         rows.append({
             "customer_id": a['customer_id'],
             "loyalty_account_id": a['id'],
-            "balance": a.get('balance', 0),
-            "lifetime_points": a.get('lifetime_points', 0),
+            "balance": balance,
+            "lifetime_points": lifetime,
             "enrolled_at": a.get('enrolled_at') or a.get('created_at'),
+            "last_synced": datetime.now(timezone.utc).isoformat(),
         })
     
     req = urllib.request.Request(
-        f"{SUPA_URL}/rest/v1/member_loyalty",
+        f"{SUPA_URL}/rest/v1/member_loyalty?on_conflict=customer_id",
         data=json.dumps(rows).encode(),
         headers=supa_headers,
         method='POST'

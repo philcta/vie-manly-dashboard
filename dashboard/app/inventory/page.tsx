@@ -69,8 +69,8 @@ function FilterDropdown({
             <button
                 onClick={() => setOpen(!open)}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-colors cursor-pointer border ${selected.size > 0
-                        ? "bg-olive text-white border-olive"
-                        : "bg-muted text-muted-foreground border-border hover:text-foreground"
+                    ? "bg-olive text-white border-olive"
+                    : "bg-muted text-muted-foreground border-border hover:text-foreground"
                     }`}
             >
                 {label}{selected.size > 0 && ` (${selected.size})`}
@@ -150,6 +150,7 @@ export default function InventoryPage() {
     const [vendorFilter, setVendorFilter] = useState<Set<string>>(new Set());
     const [alertFilter, setAlertFilter] = useState<string | null>(null);
     const [stockValue, setStockValue] = useState(0);
+    const [stockValueExGst, setStockValueExGst] = useState(0);
     const [retailValue, setRetailValue] = useState(0);
     const [avgMargin, setAvgMargin] = useState(0);
     const [cafeMargin, setCafeMargin] = useState(0);
@@ -184,7 +185,7 @@ export default function InventoryPage() {
 
             const { data: inv, error: invErr } = await supabase
                 .from("inventory")
-                .select("product_name, categories, current_quantity, default_unit_cost, price, gst_applicable, status, default_vendor, last_sale_date, sku")
+                .select("product_name, categories, current_quantity, default_unit_cost, price, gst_applicable, tax_gst_10, status, default_vendor, last_sale_date, sku")
                 .eq("source_date", sourceDate || "")
                 .order("product_name", { ascending: true });
 
@@ -229,7 +230,11 @@ export default function InventoryPage() {
                 const s = salesMap.get(productName);
                 const qtySold = s?.qtySold ?? 0;
                 const netSales = s?.netSales ?? 0;
-                const unitCost = Number(item.default_unit_cost || 0);
+                const rawCost = Number(item.default_unit_cost || 0);
+                // Use tax_gst_10 text field as primary GST source (more reliable than boolean)
+                const hasGst = (item.tax_gst_10 as string) === 'Y';
+                // Square does not include GST in cost — add 10% for GST-applicable items
+                const unitCost = hasGst ? rawCost * 1.10 : rawCost;
                 const retailPrice = Number(item.price || 0);
                 const currentQty = Number(item.current_quantity || 0);
                 const avgSellingPrice = qtySold > 0 ? netSales / qtySold : retailPrice;
@@ -262,7 +267,7 @@ export default function InventoryPage() {
                     actualProfit,
                     daysLeft,
                     stockStatus: status,
-                    gst: item.gst_applicable === true,
+                    gst: hasGst,
                     itemStatus: (item.status as string) || "ACTIVE",
                     defaultVendor: (item.default_vendor as string) || null,
                     lastSaleDate: (item.last_sale_date as string) || null,
@@ -286,6 +291,9 @@ export default function InventoryPage() {
             // Aggregate KPIs — only positive stock (matches Square dashboard)
             const positiveStock = displayItems.filter((i) => i.qty > 0);
             const sv = positiveStock.reduce((s, i) => s + i.qty * i.cost, 0);
+            // Ex-GST stock value: back out the 10% for GST items
+            const svExGst = positiveStock.reduce((s, i) =>
+                s + i.qty * (i.gst ? i.cost / 1.10 : i.cost), 0);
             const rv = positiveStock.reduce((s, i) => s + i.qty * i.price, 0);
             const lc = displayItems.filter((i) => i.stockStatus === "Low").length;
 
@@ -307,6 +315,7 @@ export default function InventoryPage() {
             const rm = retRV > 0 ? ((retRV - retSV) / retRV) * 100 : 0;
 
             setStockValue(sv);
+            setStockValueExGst(svExGst);
             setRetailValue(rv);
             setAvgMargin(am);
             setCafeMargin(cm);
@@ -478,11 +487,15 @@ export default function InventoryPage() {
             filtered = filtered.filter(i => i.reorderAlert === alertFilter);
         }
 
-        // Sale recency filter
+        // Sale recency filter — use lastSoldDate (from intelligence) as fallback
+        // when lastSaleDate (from inventory table) is null
         if (saleFilter !== "all") {
             const days = saleFilter === "6mo" ? 180 : saleFilter === "3mo" ? 90 : 30;
             const cutoff = new Date(Date.now() - days * 86400000).toISOString().split("T")[0];
-            filtered = filtered.filter(i => i.lastSaleDate && i.lastSaleDate >= cutoff);
+            filtered = filtered.filter(i => {
+                const saleDate = i.lastSaleDate || i.lastSoldDate;
+                return saleDate && saleDate >= cutoff;
+            });
         }
 
         // Category filter
@@ -501,142 +514,144 @@ export default function InventoryPage() {
     const needsActionCount = alerts.critical + alerts.low;
 
     return (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-8">
-            <h1 className="text-[28px] font-bold text-foreground">Inventory</h1>
-
-            {/* KPI Cards */}
-            <div className="grid grid-cols-4 gap-5">
-                <KpiCard label="Stock Value" value={stockValue} formatter={(n) => formatCurrency(n, 0)} subtitle={snapshotDate ? `as of ${snapshotDate}` : undefined} delay={0} />
-                <KpiCard label="Retail Value" value={retailValue} formatter={(n) => formatCurrency(n, 0)} subtitle={snapshotDate ? `as of ${snapshotDate}` : undefined} delay={1} />
-                <KpiCard label="Avg Profit Margin" value={avgMargin} formatter={(n) => formatPercent(n)} subtitle={`Cafe: ${formatPercent(cafeMargin)} · Retail: ${formatPercent(retailMargin)}`} delay={2} />
-                <KpiCard label="Needs Action" value={needsActionCount} formatter={(n) => formatNumber(n)} subtitle={`${alerts.critical} critical · ${alerts.low} low`} delay={3} />
-            </div>
-
-            {/* ── Restock Alerts Panel ──────────────────────────── */}
-            {hasIntelligence && (
-                <div className="bg-card rounded-xl border border-border p-5" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-                    <h3 className="text-base font-semibold text-foreground mb-4 flex items-center gap-2">
-                        <AlertTriangle size={16} className="text-orange-500" />
-                        Stock Intelligence
-                    </h3>
-                    <div className="grid grid-cols-5 gap-3">
-                        <AlertCard
-                            icon={<AlertTriangle size={16} className="text-red-500" />}
-                            label="Critical"
-                            count={alerts.critical}
-                            color="ring-red-500/40"
-                            onClick={() => setAlertFilter(alertFilter === "CRITICAL" ? null : "CRITICAL")}
-                            active={alertFilter === "CRITICAL"}
-                        />
-                        <AlertCard
-                            icon={<TrendingDown size={16} className="text-orange-500" />}
-                            label="Low Stock"
-                            count={alerts.low}
-                            color="ring-orange-500/40"
-                            onClick={() => setAlertFilter(alertFilter === "LOW" ? null : "LOW")}
-                            active={alertFilter === "LOW"}
-                        />
-                        <AlertCard
-                            icon={<Clock size={16} className="text-yellow-600" />}
-                            label="Watch"
-                            count={alerts.watch}
-                            color="ring-yellow-500/40"
-                            onClick={() => setAlertFilter(alertFilter === "WATCH" ? null : "WATCH")}
-                            active={alertFilter === "WATCH"}
-                        />
-                        <AlertCard
-                            icon={<Package size={16} className="text-blue-500" />}
-                            label="Overstock"
-                            count={alerts.overstock}
-                            color="ring-blue-500/40"
-                            onClick={() => setAlertFilter(alertFilter === "OVERSTOCK" ? null : "OVERSTOCK")}
-                            active={alertFilter === "OVERSTOCK"}
-                        />
-                        <AlertCard
-                            icon={<ShoppingCart size={16} className="text-zinc-400" />}
-                            label="Dead Stock"
-                            count={alerts.dead}
-                            color="ring-zinc-500/40"
-                            onClick={() => setAlertFilter(alertFilter === "DEAD" ? null : "DEAD")}
-                            active={alertFilter === "DEAD"}
-                        />
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-8 relative min-h-[80vh]">
+            {loading ? (
+                <div className="absolute inset-0 flex items-center justify-center z-40 bg-background">
+                    <div className="flex flex-col items-center gap-3 text-muted-foreground">
+                        <div className="w-8 h-8 border-2 border-olive/30 border-t-olive rounded-full animate-spin" />
+                        <span className="text-sm font-medium">Loading inventory...</span>
                     </div>
                 </div>
-            )}
+            ) : (
+                <>
+                    <h1 className="text-[28px] font-bold text-foreground">Inventory</h1>
 
-            {/* Filters + Stock Levels table */}
-            <div className="space-y-3">
-                {/* Filter row */}
-                <div className="flex flex-wrap items-center gap-2">
-                    <Filter size={14} className="text-muted-foreground" />
+                    {/* KPI Cards */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                        <KpiCard label="Stock Value (GST inc.)" value={stockValue} formatter={(n) => formatCurrency(n, 0)} subtitle={`Ex-GST: ${formatCurrency(stockValueExGst, 0)} · ${snapshotDate}`} delay={0} />
+                        <KpiCard label="Retail Value" value={retailValue} formatter={(n) => formatCurrency(n, 0)} subtitle={snapshotDate ? `as of ${snapshotDate}` : undefined} delay={1} />
+                        <KpiCard label="Avg Profit Margin" value={avgMargin} formatter={(n) => formatPercent(n)} subtitle={`Cafe: ${formatPercent(cafeMargin)} · Retail: ${formatPercent(retailMargin)}`} delay={2} />
+                        <KpiCard label="Needs Action" value={needsActionCount} formatter={(n) => formatNumber(n)} subtitle={`${alerts.critical} critical · ${alerts.low} low`} delay={3} />
+                    </div>
 
-                    <FilterDropdown
-                        label="Category"
-                        options={[...new Set(items.map(i => i.category))].filter(Boolean).sort()}
-                        selected={categoryFilter}
-                        onChange={setCategoryFilter}
-                    />
-
-                    <FilterDropdown
-                        label="Vendor"
-                        options={[...new Set(items.map(i => i.defaultVendor || "(none)"))].sort()}
-                        selected={vendorFilter}
-                        onChange={setVendorFilter}
-                    />
-
-                    {/* Divider */}
-                    <div className="w-px h-5 bg-border mx-1" />
-
-                    {/* Sale recency pills */}
-                    {(["all", "6mo", "3mo", "1mo"] as const).map((f) => {
-                        const label = f === "all" ? "All"
-                            : f === "6mo" ? "6 months"
-                                : f === "3mo" ? "3 months"
-                                    : "Last month";
-                        return (
-                            <button
-                                key={f}
-                                onClick={() => setSaleFilter(f)}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors cursor-pointer ${saleFilter === f
-                                    ? "bg-olive text-white"
-                                    : "bg-muted text-muted-foreground hover:text-foreground"
-                                    }`}
-                            >
-                                {label}
-                            </button>
-                        );
-                    })}
-
-                    {/* Clear filters */}
-                    {(categoryFilter.size > 0 || vendorFilter.size > 0 || saleFilter !== "1mo" || alertFilter) && (
-                        <button
-                            onClick={() => { setCategoryFilter(new Set()); setVendorFilter(new Set()); setSaleFilter("1mo"); setAlertFilter(null); }}
-                            className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                        >
-                            <X size={12} />
-                            Reset filters
-                        </button>
+                    {/* ── Restock Alerts Panel ──────────────────────────── */}
+                    {hasIntelligence && (
+                        <div className="bg-card rounded-xl border border-border p-5" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+                            <h3 className="text-base font-semibold text-foreground mb-4 flex items-center gap-2">
+                                <AlertTriangle size={16} className="text-orange-500" />
+                                Stock Intelligence
+                            </h3>
+                            <div className="grid grid-cols-3 lg:grid-cols-5 gap-3">
+                                <AlertCard
+                                    icon={<AlertTriangle size={16} className="text-red-500" />}
+                                    label="Critical"
+                                    count={alerts.critical}
+                                    color="ring-red-500/40"
+                                    onClick={() => setAlertFilter(alertFilter === "CRITICAL" ? null : "CRITICAL")}
+                                    active={alertFilter === "CRITICAL"}
+                                />
+                                <AlertCard
+                                    icon={<TrendingDown size={16} className="text-orange-500" />}
+                                    label="Low Stock"
+                                    count={alerts.low}
+                                    color="ring-orange-500/40"
+                                    onClick={() => setAlertFilter(alertFilter === "LOW" ? null : "LOW")}
+                                    active={alertFilter === "LOW"}
+                                />
+                                <AlertCard
+                                    icon={<Clock size={16} className="text-yellow-600" />}
+                                    label="Watch"
+                                    count={alerts.watch}
+                                    color="ring-yellow-500/40"
+                                    onClick={() => setAlertFilter(alertFilter === "WATCH" ? null : "WATCH")}
+                                    active={alertFilter === "WATCH"}
+                                />
+                                <AlertCard
+                                    icon={<Package size={16} className="text-blue-500" />}
+                                    label="Overstock"
+                                    count={alerts.overstock}
+                                    color="ring-blue-500/40"
+                                    onClick={() => setAlertFilter(alertFilter === "OVERSTOCK" ? null : "OVERSTOCK")}
+                                    active={alertFilter === "OVERSTOCK"}
+                                />
+                                <AlertCard
+                                    icon={<ShoppingCart size={16} className="text-zinc-400" />}
+                                    label="Dead Stock"
+                                    count={alerts.dead}
+                                    color="ring-zinc-500/40"
+                                    onClick={() => setAlertFilter(alertFilter === "DEAD" ? null : "DEAD")}
+                                    active={alertFilter === "DEAD"}
+                                />
+                            </div>
+                        </div>
                     )}
-                </div>
 
-                <SortableTable
-                    title="Stock Levels"
-                    columns={stockColumns}
-                    data={filteredItems}
-                    defaultSortKey={alertFilter ? "daysOfStock" : "product"}
-                    defaultSortDir="asc"
-                    searchKeys={["product", "category", "sku", "defaultVendor"]}
-                    searchPlaceholder="Search product, category, SKU or vendor..."
-                />
-            </div>
+                    {/* Filters + Stock Levels table */}
+                    <div className="space-y-3">
+                        {/* Filter row */}
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Filter size={14} className="text-muted-foreground" />
 
-            {loading && (
-                <div className="fixed inset-0 ml-[220px] bg-background/80 flex items-center justify-center z-40">
-                    <div className="flex items-center gap-3 text-muted-foreground">
-                        <div className="w-5 h-5 border-2 border-olive/30 border-t-olive rounded-full animate-spin" />
-                        <span className="text-sm">Loading inventory...</span>
+                            <FilterDropdown
+                                label="Category"
+                                options={[...new Set(items.map(i => i.category))].filter(Boolean).sort()}
+                                selected={categoryFilter}
+                                onChange={setCategoryFilter}
+                            />
+
+                            <FilterDropdown
+                                label="Vendor"
+                                options={[...new Set(items.map(i => i.defaultVendor || "(none)"))].sort()}
+                                selected={vendorFilter}
+                                onChange={setVendorFilter}
+                            />
+
+                            {/* Divider */}
+                            <div className="w-px h-5 bg-border mx-1" />
+
+                            {/* Sale recency pills */}
+                            {(["all", "6mo", "3mo", "1mo"] as const).map((f) => {
+                                const label = f === "all" ? "All"
+                                    : f === "6mo" ? "6 months"
+                                        : f === "3mo" ? "3 months"
+                                            : "Last month";
+                                return (
+                                    <button
+                                        key={f}
+                                        onClick={() => setSaleFilter(f)}
+                                        className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors cursor-pointer ${saleFilter === f
+                                            ? "bg-olive text-white"
+                                            : "bg-muted text-muted-foreground hover:text-foreground"
+                                            }`}
+                                    >
+                                        {label}
+                                    </button>
+                                );
+                            })}
+
+                            {/* Clear filters */}
+                            {(categoryFilter.size > 0 || vendorFilter.size > 0 || saleFilter !== "1mo" || alertFilter) && (
+                                <button
+                                    onClick={() => { setCategoryFilter(new Set()); setVendorFilter(new Set()); setSaleFilter("1mo"); setAlertFilter(null); }}
+                                    className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                                >
+                                    <X size={12} />
+                                    Reset filters
+                                </button>
+                            )}
+                        </div>
+
+                        <SortableTable
+                            title="Stock Levels"
+                            columns={stockColumns}
+                            data={filteredItems}
+                            defaultSortKey={alertFilter ? "daysOfStock" : "product"}
+                            defaultSortDir="asc"
+                            searchKeys={["product", "category", "sku", "defaultVendor"]}
+                            searchPlaceholder="Search product, category, SKU or vendor..."
+                        />
                     </div>
-                </div>
+                </>
             )}
         </motion.div>
     );

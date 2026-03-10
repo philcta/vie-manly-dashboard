@@ -3,13 +3,17 @@
  * All formatters used by KPI cards, tables, and charts.
  */
 
-/** Format as AUD currency — $1,234.56 */
-export function formatCurrency(value: number, decimals = 2): string {
+/** Format as AUD currency.
+ *  Auto-drops decimals for values >= $1,000 → $13,773
+ *  Keeps 2 decimals for smaller values → $28.47
+ *  Pass explicit `decimals` to override. */
+export function formatCurrency(value: number, decimals?: number): string {
+    const d = decimals ?? (Math.abs(value) >= 1000 ? 0 : 2);
     return new Intl.NumberFormat("en-AU", {
         style: "currency",
         currency: "AUD",
-        minimumFractionDigits: decimals,
-        maximumFractionDigits: decimals,
+        minimumFractionDigits: d,
+        maximumFractionDigits: d,
     }).format(value);
 }
 
