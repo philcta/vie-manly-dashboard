@@ -55,6 +55,9 @@ logs/
 *.csv
 *.json
 !package.json
+!tsconfig.json
+!components.json
+!package-lock.json
 !services/item_category_map.json
 *.xlsx
 *.jpg
