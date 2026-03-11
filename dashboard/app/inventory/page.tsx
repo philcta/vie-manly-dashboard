@@ -64,6 +64,8 @@ function FilterDropdown({
         return () => document.removeEventListener("mousedown", handler);
     }, []);
 
+    const allSelected = options.length > 0 && selected.size === options.length;
+
     return (
         <div className="relative" ref={ref}>
             <button
@@ -77,7 +79,22 @@ function FilterDropdown({
                 <ChevronDown size={12} />
             </button>
             {open && (
-                <div className="absolute z-50 mt-1 w-56 max-h-64 overflow-y-auto bg-card border border-border rounded-lg shadow-lg p-2 space-y-0.5">
+                <div className="absolute z-50 mt-1 w-56 max-h-72 overflow-y-auto bg-card border border-border rounded-lg shadow-lg p-2 space-y-0.5">
+                    {/* Select All / Clear All */}
+                    <button
+                        onClick={() => {
+                            if (allSelected) {
+                                onChange(new Set());
+                            } else {
+                                onChange(new Set(options));
+                            }
+                        }}
+                        className="w-full flex items-center justify-between px-2 py-1.5 text-xs font-semibold rounded hover:bg-muted transition-colors cursor-pointer"
+                    >
+                        <span className="text-olive">{allSelected ? "Clear all" : "Select all"}</span>
+                        <span className="text-muted-foreground text-[10px]">{selected.size}/{options.length}</span>
+                    </button>
+                    <div className="border-b border-border my-1" />
                     {options.map((opt) => (
                         <label key={opt} className="flex items-center gap-2 px-2 py-1 text-xs cursor-pointer hover:bg-muted rounded">
                             <input
