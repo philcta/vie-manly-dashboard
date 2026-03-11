@@ -63,6 +63,8 @@ export default function OverviewPage() {
   const [categoryData, setCategoryData] = useState<CategoryDailyData[]>([]);
   const [compCategoryData, setCompCategoryData] = useState<CategoryDailyData[]>([]);
   const [categoryDetailData, setCategoryDetailData] = useState<CategoryDailyData[]>([]);
+  const [compCategoryDetailData, setCompCategoryDetailData] = useState<CategoryDailyData[]>([]);
+  const [historicalCategoryDetailData, setHistoricalCategoryDetailData] = useState<CategoryDailyData[]>([]);
   const [labourCost, setLabourCost] = useState(0);
   const [compLabourCost, setCompLabourCost] = useState(0);
   const [dailyLabour, setDailyLabour] = useState<DailyLabour[]>([]);
@@ -118,6 +120,8 @@ export default function OverviewPage() {
         labSide,
         compLabSide,
         catDetailData,
+        compCatDetailData,
+        histCatDetailData,
       ] = await Promise.all([
         fetchDailyStats(startDate, endDate),
         fetchDailyStats(compStart, compEnd),
@@ -144,6 +148,8 @@ export default function OverviewPage() {
         fetchLabourCostBySide(startDate, endDate),
         fetchLabourCostBySide(compStart, compEnd),
         fetchCategoryDetailDaily(startDate, endDate),
+        fetchCategoryDetailDaily(compStart, compEnd),
+        fetchCategoryDetailDaily(histStart, endDate),
       ]);
 
       setDailyRows(dRows);
@@ -166,6 +172,8 @@ export default function OverviewPage() {
       setLabourBySide(labSide);
       setCompLabourBySide(compLabSide);
       setCategoryDetailData(catDetailData);
+      setCompCategoryDetailData(compCatDetailData);
+      setHistoricalCategoryDetailData(histCatDetailData);
 
       // Process margin data
       const margins = (marginsResult.data || []) as MarginRow[];
@@ -425,6 +433,8 @@ export default function OverviewPage() {
               historicalLabour={historicalLabour}
               effectiveMargin={effectiveMargin}
               categoryDetailData={categoryDetailData}
+              compCategoryDetailData={compCategoryDetailData}
+              historicalCategoryDetailData={historicalCategoryDetailData}
             />
           </section>
 

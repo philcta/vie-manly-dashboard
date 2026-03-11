@@ -157,6 +157,10 @@ interface MetricTimeSeriesChartProps {
     effectiveMargin: number;
     /** Per-category (granular) daily stats for category filter */
     categoryDetailData?: CategoryDailyData[];
+    /** Per-category detail stats for comparison period */
+    compCategoryDetailData?: CategoryDailyData[];
+    /** Per-category detail stats for historical 6-month lookback (moving averages) */
+    historicalCategoryDetailData?: CategoryDailyData[];
 }
 
 // ── Helper: format date label ───────────────────────────────────
@@ -260,6 +264,8 @@ export function MetricTimeSeriesChart({
     historicalLabour,
     effectiveMargin,
     categoryDetailData = [],
+    compCategoryDetailData = [],
+    historicalCategoryDetailData = [],
 }: MetricTimeSeriesChartProps) {
     const [metric, setMetric] = useState<MetricKey>("net_sales");
     const [activeTrends, setActiveTrends] = useState<Set<TrendType>>(new Set(["ma_3mo"]));
@@ -291,8 +297,8 @@ export function MetricTimeSeriesChart({
     }, [metric, side, dailyStats, categoryData, dailyLabour, effectiveMargin, categoryDetailData, selectedCategories]);
 
     const compChartData = useMemo(() => {
-        return buildMetricData(compDailyStats, compCategoryData, compDailyLabour, metric, side, effectiveMargin);
-    }, [metric, side, compDailyStats, compCategoryData, compDailyLabour, effectiveMargin]);
+        return buildMetricData(compDailyStats, compCategoryData, compDailyLabour, metric, side, effectiveMargin, compCategoryDetailData, selectedCategories);
+    }, [metric, side, compDailyStats, compCategoryData, compDailyLabour, effectiveMargin, compCategoryDetailData, selectedCategories]);
 
     // ── Build historical value map for moving averages ──
     const historicalValueMap = useMemo(() => {
@@ -300,8 +306,21 @@ export function MetricTimeSeriesChart({
         const labourMap = new Map<string, number>();
         for (const l of historicalLabour) labourMap.set(l.date, l.labour_cost);
 
-        if (side !== "all" && metric !== "labour_pct" && metric !== "real_profit_pct" && metric !== "customers") {
-            // Side-filtered: use category data
+        if (side === "category" && selectedCategories.size > 0 && historicalCategoryDetailData.length > 0) {
+            // Category-filtered: use historical category detail data
+            const dayAgg = new Map<string, { net: number }>();
+            for (const r of historicalCategoryDetailData) {
+                if (!selectedCategories.has(r.category)) continue;
+                const entry = dayAgg.get(r.date) || { net: 0 };
+                entry.net += r.total_net_sales;
+                dayAgg.set(r.date, entry);
+            }
+            for (const [date, agg] of dayAgg) {
+                // Only net_sales is supported in category mode
+                map.set(date, agg.net);
+            }
+        } else if ((side === "cafe" || side === "retail") && metric !== "labour_pct" && metric !== "real_profit_pct" && metric !== "customers") {
+            // Side-filtered: use category data (Cafe/Retail)
             const targetSide = side === "cafe" ? "Cafe" : "Retail";
             const dayAgg = new Map<string, { net: number; gross: number; txn: number }>();
             for (const r of historicalCategoryData) {
@@ -344,7 +363,7 @@ export function MetricTimeSeriesChart({
             }
         }
         return map;
-    }, [metric, side, historicalStats, historicalCategoryData, historicalLabour, effectiveMargin]);
+    }, [metric, side, selectedCategories, historicalStats, historicalCategoryData, historicalCategoryDetailData, historicalLabour, effectiveMargin]);
 
     // ── Trailing average computation ──
     const computeAvg = useMemo(() => {
