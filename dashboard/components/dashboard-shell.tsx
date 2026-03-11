@@ -31,7 +31,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
         <div className="flex min-h-screen">
             <AppSidebar />
             <main
-                className="flex-1 p-5 xl:p-8 bg-background min-h-screen transition-all duration-300 ease-in-out overflow-x-hidden"
+                className="flex-1 p-3 sm:p-4 lg:p-5 xl:p-6 bg-background min-h-screen transition-all duration-300 ease-in-out overflow-x-hidden"
                 style={{ marginLeft: collapsed ? 56 : 220 }}
             >
                 {children}

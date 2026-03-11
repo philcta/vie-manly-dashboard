@@ -157,7 +157,7 @@ export default function CampaignsPage() {
     ];
 
     return (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-8 relative min-h-[80vh]">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-6 relative min-h-[80vh]">
             {loading ? (
                 <div className="absolute inset-0 flex items-center justify-center z-40 bg-background">
                     <div className="flex flex-col items-center gap-3 text-muted-foreground">
@@ -168,7 +168,7 @@ export default function CampaignsPage() {
             ) : (
                 <>
                     <div className="flex items-center justify-between">
-                        <h1 className="text-[28px] font-bold text-foreground">SMS Campaigns</h1>
+                        <h1 className="text-2xl font-bold text-foreground">SMS Campaigns</h1>
                         <button className="px-4 py-2 bg-olive text-white text-sm font-semibold rounded-lg hover:bg-olive-dark transition-colors duration-200 cursor-pointer">
                             + New Campaign
                         </button>

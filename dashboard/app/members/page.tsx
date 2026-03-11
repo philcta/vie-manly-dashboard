@@ -8,17 +8,19 @@ import { MemberMetricChart, type MemberDailyRow } from "@/components/charts/memb
 import { SortableTable, type ColumnDef } from "@/components/sortable-table";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Download } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 import {
-    fetchMembers,
-    fetchMemberLoyalty,
-    fetchLatestMemberStats,
     fetchMemberRevenueSeries,
     fetchMemberHistoricalSeries,
     fetchMemberPeriodKPIs,
     fetchLoyaltyPeriodKPIs,
-    fetchMemberSpendingPatterns,
     buildPeriodMembers,
     aggregateLoyaltyInsights,
+    type Member,
+    type MemberLoyalty,
+    type MemberPeriodRow,
+    type MemberDailyStats,
+    type SpendingPattern,
     type MemberPeriodKPIs,
     type LoyaltyPeriodKPIs,
 } from "@/lib/queries/members";
@@ -364,10 +366,9 @@ export default function MembersPage() {
             histStart.setMonth(histStart.getMonth() - 6);
             const historicalStartDate = histStart.toISOString().slice(0, 10);
 
+            // Consolidated: get_members_full replaces 4 separate paginated queries
             const [
-                members,
-                loyalty,
-                stats,
+                membersResult,
                 periodKpis,
                 compPeriodKpis,
                 loyaltyPeriod,
@@ -375,11 +376,8 @@ export default function MembersPage() {
                 series,
                 compSeries,
                 historicalSeries,
-                spendingPatterns,
             ] = await Promise.all([
-                fetchMembers(),
-                fetchMemberLoyalty(),
-                fetchLatestMemberStats(),
+                supabase.rpc("get_members_full"),
                 fetchMemberPeriodKPIs(range.startDate, range.endDate),
                 fetchMemberPeriodKPIs(compRange.startDate, compRange.endDate),
                 fetchLoyaltyPeriodKPIs(range.startDate, range.endDate),
@@ -387,24 +385,72 @@ export default function MembersPage() {
                 fetchMemberRevenueSeries(range.startDate, range.endDate),
                 fetchMemberRevenueSeries(compRange.startDate, compRange.endDate),
                 fetchMemberHistoricalSeries(historicalStartDate, range.endDate),
-                fetchMemberSpendingPatterns(),
             ]);
 
-            // Derive all-time per-member stats from latestMemberStats
-            // (already has total_spent, total_visits pre-aggregated — no extra query needed)
-            const allTimeStats = stats.map(s => ({
-                customer_id: s.square_customer_id,
-                total_spent: s.total_spent || 0,
-                visits: s.total_visits || 0,
-                avg_spend: s.total_visits > 0 ? (s.total_spent || 0) / s.total_visits : 0,
-            }));
+            if (membersResult.error) throw membersResult.error;
+            const mResult = membersResult.data;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const memberRows = (mResult?.members || []) as any[];
 
-            // Derive transacting member IDs from stats (any member in member_daily_stats has transacted)
-            const txMemberIds = new Set(stats.map(s => s.square_customer_id));
+            // Build member objects from consolidated result
+            const activeMembers: Member[] = [];
+            const activeLoyalty: MemberLoyalty[] = [];
+            const allTimeStats: MemberPeriodRow[] = [];
+            const latestStats: MemberDailyStats[] = [];
+            const spendingPatterns: SpendingPattern[] = [];
 
-            // Filter out members who never purchased (374 loyalty-only / phone-only)
-            const activeMembers = members.filter(m => txMemberIds.has(m.square_customer_id));
-            const activeLoyalty = loyalty.filter(l => txMemberIds.has(l.customer_id));
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            for (const m of memberRows) {
+                const cid = m.square_customer_id;
+                activeMembers.push({
+                    id: 0,
+                    square_customer_id: cid,
+                    first_name: m.first_name || null,
+                    last_name: m.last_name || null,
+                    email_address: null,
+                    phone_number: m.phone_number || null,
+                    creation_date: null,
+                    birthday: null,
+                });
+                activeLoyalty.push({
+                    customer_id: cid,
+                    balance: m.loyalty_balance || 0,
+                    lifetime_points: m.lifetime_points || 0,
+                    points_redeemed: m.points_redeemed || 0,
+                    enrolled_at: null,
+                });
+                const totalVisits = m.total_visits || 0;
+                const totalSpent = m.total_spent || 0;
+                allTimeStats.push({
+                    customer_id: cid,
+                    total_spent: totalSpent,
+                    visits: totalVisits,
+                    avg_spend: totalVisits > 0 ? totalSpent / totalVisits : 0,
+                });
+                latestStats.push({
+                    square_customer_id: cid,
+                    date: m.last_visit_date || "",
+                    total_spent: totalSpent,
+                    total_items: 0,
+                    total_visits: totalVisits,
+                    total_transactions: m.total_transactions || 0,
+                    day_spent: 0,
+                    days_since_last_visit: m.days_since_last_visit ?? 999,
+                    visit_frequency_30d: 0,
+                });
+                spendingPatterns.push({
+                    customer_id: cid,
+                    alltime_avg_spend: m.alltime_avg_spend || 0,
+                    alltime_cafe_spent: m.alltime_cafe_spent || 0,
+                    alltime_retail_spent: m.alltime_retail_spent || 0,
+                    last30_total_spent: m.last30_total_spent || 0,
+                    last30_visits: m.last30_visits || 0,
+                    last30_avg_spend: m.last30_avg_spend || 0,
+                    last30_cafe_spent: m.last30_cafe_spent || 0,
+                    last30_retail_spent: m.last30_retail_spent || 0,
+                    spend_drop_pct: m.spend_drop_pct || 0,
+                });
+            }
 
             // Period-aware KPIs
             setKpis(periodKpis);
@@ -419,7 +465,7 @@ export default function MembersPage() {
             setLoyaltyInsights(aggregateLoyaltyInsights(activeLoyalty));
 
             // Members table — ALL-TIME spending + lifetime loyalty (not period-filtered)
-            setAllMembers(buildPeriodMembers(activeMembers, allTimeStats, activeLoyalty, stats, spendingPatterns) as MemberRow[]);
+            setAllMembers(buildPeriodMembers(activeMembers, allTimeStats, activeLoyalty, latestStats, spendingPatterns) as MemberRow[]);
 
             // Build MemberDailyRow from series data (all pre-computed in Supabase)
             const toRow = (s: typeof series[0]): MemberDailyRow => ({
@@ -463,7 +509,7 @@ export default function MembersPage() {
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
-            className="space-y-8 relative min-h-[80vh]"
+            className="space-y-6 relative min-h-[80vh]"
         >
             {loading ? (
                 <div className="absolute inset-0 flex items-center justify-center z-40 bg-background">
@@ -475,7 +521,7 @@ export default function MembersPage() {
             ) : (
                 <>
                     <div className="flex items-center justify-between">
-                        <h1 className="text-[28px] font-bold text-foreground">Members</h1>
+                        <h1 className="text-2xl font-bold text-foreground">Members</h1>
                     </div>
 
                     {/* Period Selector — with comparison enabled */}
@@ -494,7 +540,7 @@ export default function MembersPage() {
 
                     {/* KPI Cards — period-aware with comparison badges + Staff-style subtitles */}
                     {kpis && (
-                        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
                             <KpiCard
                                 label="Active Members"
                                 value={kpis.uniqueMembers}
@@ -566,7 +612,7 @@ export default function MembersPage() {
                             (m) => m.visits >= 5 && (m.points as number) > 0 && (m.pointsRedeemed as number) === 0 && m.name !== "Unknown"
                         );
                         return (
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
                                 <div className="bg-card rounded-xl border border-border p-5" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
                                     <h4 className="text-sm font-semibold text-foreground mb-3">Points Overview</h4>
                                     <div className="space-y-2 text-sm">

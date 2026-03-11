@@ -260,7 +260,7 @@ export default function OverviewPage() {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="space-y-8 relative min-h-[80vh]"
+      className="space-y-6 relative min-h-[80vh]"
     >
       {loading ? (
         <div className="absolute inset-0 flex items-center justify-center z-40 bg-background">
@@ -273,7 +273,7 @@ export default function OverviewPage() {
         <>
           {/* Page Header */}
           <div className="flex items-center justify-between">
-            <h1 className="text-[28px] font-bold text-foreground">Overview</h1>
+            <h1 className="text-2xl font-bold text-foreground">Overview</h1>
           </div>
 
           {/* Period Selector */}
@@ -293,7 +293,7 @@ export default function OverviewPage() {
           {/* ═══ Section 1: Sales & Performance KPIs ═══ */}
           <section>
             {period === "today" && hourlyData.length > 0 && (
-              <div className="mb-6">
+              <div className="mb-4">
                 <HourlyChart
                   data={hourlyData}
                   comparisonData={compHourlyData}
@@ -303,7 +303,7 @@ export default function OverviewPage() {
             )}
 
             {/* Row 1: 4 cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               <KpiCard
                 label="Net Sales"
                 value={cs?.netSales ?? 0}
@@ -341,7 +341,7 @@ export default function OverviewPage() {
             </div>
 
             {/* Row 2: 4 cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
               <KpiCard
                 label="Customers"
                 value={cs?.totalCustomers ?? 0}
@@ -383,7 +383,7 @@ export default function OverviewPage() {
             </div>
 
             {/* Row 3: 3 cards */}
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
               <KpiCard
                 label="Avg Profit Margin"
                 value={effectiveMargin}

@@ -145,14 +145,14 @@ function AlertCard({ icon, label, count, color, onClick, active }: {
     return (
         <button
             onClick={onClick}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-all cursor-pointer hover:shadow-md ${active ? `ring-2 ${color} border-transparent shadow-md` : "border-border bg-card"
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all cursor-pointer hover:shadow-md ${active ? `ring-2 ${color} border-transparent shadow-md` : "border-border bg-card"
                 }`}
         >
-            <div className={`p-2 rounded-lg ${color.replace("ring-", "bg-").replace("/40", "/10")}`}>
+            <div className={`p-1.5 rounded-lg ${color.replace("ring-", "bg-").replace("/40", "/10")}`}>
                 {icon}
             </div>
             <div className="text-left">
-                <div className="text-lg font-bold tabular-nums text-foreground">{count}</div>
+                <div className="text-base font-bold tabular-nums text-foreground">{count}</div>
                 <div className="text-[11px] text-muted-foreground">{label}</div>
             </div>
         </button>
@@ -180,77 +180,33 @@ export default function InventoryPage() {
     const loadData = useCallback(async () => {
         setLoading(true);
         try {
-            // Get the latest source_date for inventory snapshot
-            const { data: latestDate } = await supabase
-                .from("inventory")
-                .select("source_date")
-                .order("source_date", { ascending: false })
-                .limit(1)
-                .single();
+            // Single consolidated RPC replaces 4+ separate queries
+            const { data: result, error: rpcErr } = await supabase.rpc("get_inventory_full");
+            if (rpcErr) throw rpcErr;
 
-            const sourceDate = latestDate?.source_date;
+            const sourceDate = result?.snapshot_date;
             if (sourceDate) setSnapshotDate(sourceDate);
 
-            // Fetch category_mappings to classify Cafe vs Retail
-            const { data: catMaps } = await supabase
-                .from("category_mappings")
-                .select("category, side");
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const invRows = (result?.items || []) as any[];
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const catSides = (result?.category_sides || []) as any[];
 
             const cafeCategories = new Set(
-                (catMaps || []).filter((c) => c.side === "Cafe").map((c) => c.category)
+                catSides.filter((c: { side: string }) => c.side === "Cafe").map((c: { category: string }) => c.category)
             );
 
-            const { data: inv, error: invErr } = await supabase
-                .from("inventory")
-                .select("product_name, categories, current_quantity, default_unit_cost, price, gst_applicable, tax_gst_10, status, default_vendor, last_sale_date, sku")
-                .eq("source_date", sourceDate || "")
-                .order("product_name", { ascending: true });
+            const hasIntel = invRows.some((r: { sales_velocity?: number }) => (r.sales_velocity ?? 0) > 0);
+            setHasIntelligence(hasIntel);
 
-            if (invErr) throw invErr;
-
-            // Fetch intelligence data (join by SKU)
-            const { data: intelData } = await supabase
-                .from("inventory_intelligence")
-                .select("sku, sales_velocity, units_sold_7d, units_sold_30d, units_sold_90d, revenue_30d, last_sold_date, last_received_date, days_of_stock, sell_through_pct, reorder_alert");
-
-            const intelMap = new Map<string, typeof intelData extends (infer T)[] | null ? T : never>();
-            for (const row of intelData || []) {
-                if (row.sku) intelMap.set(row.sku, row);
-            }
-            setHasIntelligence(intelMap.size > 0);
-
-            // Fetch recent sales data for velocity calculations
-            const thirtyDaysAgo = new Date();
-            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-            const dateStr = thirtyDaysAgo.toISOString().split("T")[0];
-
-            const { data: sales, error: salesErr } = await supabase
-                .from("daily_item_summary")
-                .select("item, category, total_qty, total_net_sales")
-                .gte("date", dateStr);
-
-            if (salesErr) throw salesErr;
-
-            // Build sales velocity map
-            const salesMap = new Map<string, { qtySold: number; netSales: number }>();
-            for (const s of sales || []) {
-                const key = s.item;
-                if (!salesMap.has(key)) salesMap.set(key, { qtySold: 0, netSales: 0 });
-                const entry = salesMap.get(key)!;
-                entry.qtySold += s.total_qty;
-                entry.netSales += s.total_net_sales;
-            }
-
-            // Map inventory to display items
-            const displayItems: InventoryItem[] = (inv || []).map((item) => {
+            // Map inventory to display items — intelligence + sales already joined
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const displayItems: InventoryItem[] = invRows.map((item: any) => {
                 const productName = item.product_name || "Unknown";
-                const s = salesMap.get(productName);
-                const qtySold = s?.qtySold ?? 0;
-                const netSales = s?.netSales ?? 0;
+                const qtySold = Number(item.dis_qty_sold) || 0;
+                const netSales = Number(item.dis_net_sales) || 0;
                 const rawCost = Number(item.default_unit_cost || 0);
-                // Use tax_gst_10 text field as primary GST source (more reliable than boolean)
                 const hasGst = (item.tax_gst_10 as string) === 'Y';
-                // Square does not include GST in cost — add 10% for GST-applicable items
                 const unitCost = hasGst ? rawCost * 1.10 : rawCost;
                 const retailPrice = Number(item.price || 0);
                 const currentQty = Number(item.current_quantity || 0);
@@ -272,9 +228,6 @@ export default function InventoryPage() {
                 if (currentQty <= lowThreshold) status = "Low";
                 else if (currentQty <= warnThreshold) status = "Warning";
 
-                // Intelligence data (from Square API)
-                const intel = sku ? intelMap.get(sku) : undefined;
-
                 return {
                     product: productName,
                     category: catStr,
@@ -289,17 +242,16 @@ export default function InventoryPage() {
                     defaultVendor: (item.default_vendor as string) || null,
                     lastSaleDate: (item.last_sale_date as string) || null,
                     sku,
-                    // Intelligence
-                    salesVelocity: intel?.sales_velocity ?? 0,
-                    sold7d: intel?.units_sold_7d ?? 0,
-                    sold30d: intel?.units_sold_30d ?? 0,
-                    sold90d: intel?.units_sold_90d ?? 0,
-                    revenue30d: intel?.revenue_30d ?? 0,
-                    lastSoldDate: intel?.last_sold_date ? intel.last_sold_date.split("T")[0] : null,
-                    lastReceivedDate: intel?.last_received_date ? intel.last_received_date.split("T")[0] : null,
-                    daysOfStock: intel?.days_of_stock ?? (daysLeft > 900 ? 9999 : daysLeft),
-                    sellThrough: intel?.sell_through_pct ?? 0,
-                    reorderAlert: intel?.reorder_alert ?? "OK",
+                    salesVelocity: item.sales_velocity ?? 0,
+                    sold7d: item.units_sold_7d ?? 0,
+                    sold30d: item.units_sold_30d ?? 0,
+                    sold90d: item.units_sold_90d ?? 0,
+                    revenue30d: item.revenue_30d ?? 0,
+                    lastSoldDate: item.last_sold_date ? String(item.last_sold_date).split("T")[0] : null,
+                    lastReceivedDate: item.last_received_date ? String(item.last_received_date).split("T")[0] : null,
+                    daysOfStock: item.days_of_stock ?? (daysLeft > 900 ? 9999 : daysLeft),
+                    sellThrough: item.sell_through_pct ?? 0,
+                    reorderAlert: item.reorder_alert ?? "OK",
                 };
             });
 
@@ -308,13 +260,11 @@ export default function InventoryPage() {
             // Aggregate KPIs — only positive stock (matches Square dashboard)
             const positiveStock = displayItems.filter((i) => i.qty > 0);
             const sv = positiveStock.reduce((s, i) => s + i.qty * i.cost, 0);
-            // Ex-GST stock value: back out the 10% for GST items
             const svExGst = positiveStock.reduce((s, i) =>
                 s + i.qty * (i.gst ? i.cost / 1.10 : i.cost), 0);
             const rv = positiveStock.reduce((s, i) => s + i.qty * i.price, 0);
             const lc = displayItems.filter((i) => i.stockStatus === "Low").length;
 
-            // Margin calculations
             const inStock = displayItems.filter((i) => i.qty > 0);
             const isSV = inStock.reduce((s, i) => s + i.qty * i.cost, 0);
             const isRV = inStock.reduce((s, i) => s + i.qty * i.price, 0);
@@ -522,7 +472,7 @@ export default function InventoryPage() {
     const needsActionCount = alerts.critical + alerts.low;
 
     return (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-8 relative min-h-[80vh]">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-6 relative min-h-[80vh]">
             {loading ? (
                 <div className="absolute inset-0 flex items-center justify-center z-40 bg-background">
                     <div className="flex flex-col items-center gap-3 text-muted-foreground">
@@ -532,10 +482,10 @@ export default function InventoryPage() {
                 </div>
             ) : (
                 <>
-                    <h1 className="text-[28px] font-bold text-foreground">Inventory</h1>
+                    <h1 className="text-2xl font-bold text-foreground">Inventory</h1>
 
                     {/* KPI Cards */}
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                         <KpiCard label="Stock Value (GST inc.)" value={stockValue} formatter={(n) => formatCurrency(n, 0)} subtitle={`Ex-GST: ${formatCurrency(stockValueExGst, 0)} · ${snapshotDate}`} delay={0} />
                         <KpiCard label="Retail Value" value={retailValue} formatter={(n) => formatCurrency(n, 0)} subtitle={snapshotDate ? `as of ${snapshotDate}` : undefined} delay={1} />
                         <KpiCard label="Avg Profit Margin" value={avgMargin} formatter={(n) => formatPercent(n)} subtitle={`Cafe: ${formatPercent(cafeMargin)} · Retail: ${formatPercent(retailMargin)}`} delay={2} />
@@ -544,12 +494,12 @@ export default function InventoryPage() {
 
                     {/* ── Restock Alerts Panel ──────────────────────────── */}
                     {hasIntelligence && (
-                        <div className="bg-card rounded-xl border border-border p-5" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-                            <h3 className="text-base font-semibold text-foreground mb-4 flex items-center gap-2">
+                        <div className="bg-card rounded-xl border border-border p-4" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+                            <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                                 <AlertTriangle size={16} className="text-orange-500" />
                                 Stock Intelligence
                             </h3>
-                            <div className="grid grid-cols-3 lg:grid-cols-5 gap-3">
+                            <div className="grid grid-cols-3 lg:grid-cols-5 gap-2">
                                 <AlertCard
                                     icon={<AlertTriangle size={16} className="text-red-500" />}
                                     label="Critical"

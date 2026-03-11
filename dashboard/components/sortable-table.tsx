@@ -156,7 +156,7 @@ export function SortableTable<T extends Record<string, unknown>>({
             style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}
         >
             {/* Header */}
-            <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-4">
+            <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                     <h3 className="text-base font-semibold text-foreground">{title}</h3>
                     {showCount && (
@@ -238,7 +238,7 @@ export function SortableTable<T extends Record<string, unknown>>({
             </div>
 
             {/* Table */}
-            <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
+            <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
                 <table className="w-full">
                     <thead className="sticky top-0 z-10">
                         <tr className="bg-[#FAFAF8]">
@@ -248,7 +248,7 @@ export function SortableTable<T extends Record<string, unknown>>({
                                 return (
                                     <th
                                         key={col.key}
-                                        className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body select-none transition-colors ${alignClass(col.align)} ${col.sortValue || col.key ? "cursor-pointer hover:text-foreground" : ""}`}
+                                        className={`px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-text-body select-none transition-colors whitespace-nowrap ${alignClass(col.align)} ${col.sortValue || col.key ? "cursor-pointer hover:text-foreground" : ""}`}
                                     >
                                         <span className="inline-flex items-center gap-1">
                                             {isGroupParent && (
@@ -289,7 +289,7 @@ export function SortableTable<T extends Record<string, unknown>>({
                                 {visibleColumns.map((col) => (
                                     <td
                                         key={col.key}
-                                        className={`px-4 py-3 text-sm ${alignClass(col.align)} ${col.group && !col.groupParent ? "bg-[#FAFAF8]/50" : ""}`}
+                                        className={`px-3 py-2 text-[13px] ${alignClass(col.align)} ${col.group && !col.groupParent ? "bg-[#FAFAF8]/50" : ""}`}
                                     >
                                         {col.render(row)}
                                     </td>

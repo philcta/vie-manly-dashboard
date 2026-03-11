@@ -63,7 +63,7 @@ export default function KpiCard({
             initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: delay * 0.05 }}
-            className={`rounded-xl p-4 hover-lift cursor-pointer relative overflow-hidden ${accent
+            className={`rounded-xl p-3 md:p-4 hover-lift cursor-pointer relative overflow-hidden ${accent
                 ? "bg-gradient-to-br from-[#FAFAF5] to-[#F5F5ED] border border-[#C5C9A8]/40"
                 : "bg-card border border-border"
                 }`}
@@ -83,7 +83,7 @@ export default function KpiCard({
                 />
             )}
             {/* Label */}
-            <div className="flex items-center gap-1.5 mb-2">
+            <div className="flex items-center gap-1 mb-1 md:mb-2">
                 <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                     {label}
                 </p>
@@ -104,7 +104,7 @@ export default function KpiCard({
                 <AnimatedNumber
                     value={value}
                     formatter={formatter}
-                    className="text-2xl font-bold text-foreground leading-none"
+                    className="text-xl md:text-2xl font-bold text-foreground leading-none"
                 />
 
                 {/* N/A Badge — comparison data not available */}

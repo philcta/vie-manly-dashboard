@@ -271,7 +271,7 @@ export default function StaffPage() {
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
-            className="space-y-8 relative min-h-[80vh]"
+            className="space-y-6 relative min-h-[80vh]"
         >
             {loading ? (
                 <div className="absolute inset-0 flex items-center justify-center z-40 bg-background">
@@ -283,7 +283,7 @@ export default function StaffPage() {
             ) : (
                 <>
                     <div className="flex items-center justify-between">
-                        <h1 className="text-[28px] font-bold text-foreground">Staff</h1>
+                        <h1 className="text-2xl font-bold text-foreground">Staff</h1>
                     </div>
 
                     {/* Period Selector */}
@@ -337,7 +337,7 @@ export default function StaffPage() {
                     </div>
 
                     {/* Charts Row */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
                         {/* Left: Labour Cost % Line Chart with filter */}
                         <div className="bg-card rounded-xl border border-border p-6" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
                             <div className="flex items-center justify-between mb-4">
