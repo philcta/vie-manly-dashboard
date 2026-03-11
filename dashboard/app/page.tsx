@@ -401,8 +401,8 @@ export default function OverviewPage() {
                 formatter={(n) => formatPercent(n)}
                 change={noCompLabour ? null : calcChange(realMargin, compRealMargin)}
                 noCompData={noCompLabour}
-                subtitle={`Margin ${formatPercent(effectiveMargin)} − Labour ${formatPercent(labourRatio)}`}
-                tooltip="Profit margin after subtracting labour costs. Formula: Avg Margin − (Labour ÷ Net Sales × 100)."
+                subtitle={`Cafe: ${formatPercent(cafeMargin - cafeLabourRatio)} · Retail: ${formatPercent(retailMargin - retailLabourRatio)}`}
+                tooltip={`Margin ${formatPercent(effectiveMargin)} − Labour ${formatPercent(labourRatio)}. Weighted by sales mix: Cafe margin (${formatPercent(cafeMargin)}) − Cafe labour (${formatPercent(cafeLabourRatio)}), Retail margin (${formatPercent(retailMargin)}) − Retail labour (${formatPercent(retailLabourRatio)}).`}
                 accent
                 delay={9}
               />
