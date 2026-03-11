@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { motion } from "framer-motion";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import KpiCard from "@/components/kpi-card";
@@ -38,22 +38,17 @@ import {
     Tooltip as RechartsTooltip,
     ResponsiveContainer,
     Legend,
-    BarChart,
-    Bar,
-    Cell,
 } from "recharts";
 
-// ── Colors ──────────────────────────────────────────────────────
-const COLORS = {
-    teenCafe: "#81B29A",    // sage green
-    teenRetail: "#F2CC8F",  // sand/gold
-    adultCafe: "#6B7355",   // olive
-    adultRetail: "#E07A5F", // coral
-    cafe: "#6B7355",
-    retail: "#E07A5F",
-    teen: "#81B29A",
-    adult: "#3D405B",       // charcoal
-};
+// ── Labour split segment keys ──
+type SegmentKey = "adultCafe" | "adultRetail" | "teenCafe" | "teenRetail";
+
+const SEGMENTS: { key: SegmentKey; label: string; color: string; emoji: string }[] = [
+    { key: "adultCafe", label: "Adult Café", color: "#6B7355", emoji: "☕" },
+    { key: "adultRetail", label: "Adult Retail", color: "#E07A5F", emoji: "🛍" },
+    { key: "teenCafe", label: "Teen Café", color: "#81B29A", emoji: "☕" },
+    { key: "teenRetail", label: "Teen Retail", color: "#F2CC8F", emoji: "🛍" },
+];
 
 export default function StaffPage() {
     const [period, setPeriod] = useState<PeriodType>("this_month");
@@ -72,6 +67,33 @@ export default function StaffPage() {
     const [payPeriod, setPayPeriod] = useState(getPayPeriod());
     const [sortCol, setSortCol] = useState<"name" | "role" | "earnings" | "weekday" | "saturday" | "sunday" | "publicHoliday" | "breaks">("name");
     const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+    // ── Chart filter: which series are visible ──
+    const [activeSegments, setActiveSegments] = useState<Set<SegmentKey>>(
+        new Set(["adultCafe", "adultRetail", "teenCafe", "teenRetail"])
+    );
+    const [segDropdownOpen, setSegDropdownOpen] = useState(false);
+    const segDropdownRef = useRef<HTMLDivElement>(null);
+
+    // Close dropdown on outside click
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (segDropdownRef.current && !segDropdownRef.current.contains(e.target as Node)) {
+                setSegDropdownOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+    }, []);
+
+    const toggleSegment = (key: SegmentKey) => {
+        setActiveSegments((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -116,38 +138,47 @@ export default function StaffPage() {
     const kpis = aggregateStaffKPIs(shifts, netSales);
     const compKpis = aggregateStaffKPIs(compShifts, compNetSales);
 
-    // ── Build daily line-chart data with teen/adult/café/retail splits ──
-    const dailyLineData = (() => {
+    // ── Build daily % line-chart data with 4-way split ──
+    const dailyLineData = useMemo(() => {
         const dayMap = new Map<string, {
-            date: string; cafe: number; retail: number; teen: number; adult: number;
+            date: string; adultCafe: number; adultRetail: number; teenCafe: number; teenRetail: number;
         }>();
         for (const s of shifts) {
             if (!dayMap.has(s.shift_date)) {
-                dayMap.set(s.shift_date, { date: s.shift_date, cafe: 0, retail: 0, teen: 0, adult: 0 });
+                dayMap.set(s.shift_date, { date: s.shift_date, adultCafe: 0, adultRetail: 0, teenCafe: 0, teenRetail: 0 });
             }
             const entry = dayMap.get(s.shift_date)!;
-            if (s.business_side === "Bar") entry.cafe += s.labour_cost;
-            else entry.retail += s.labour_cost;
-            if (s.is_teen) entry.teen += s.labour_cost;
-            else entry.adult += s.labour_cost;
+            if (!s.is_teen && s.business_side === "Bar") entry.adultCafe += s.labour_cost;
+            else if (!s.is_teen && s.business_side === "Retail") entry.adultRetail += s.labour_cost;
+            else if (s.is_teen && s.business_side === "Bar") entry.teenCafe += s.labour_cost;
+            else entry.teenRetail += s.labour_cost;
         }
         return Array.from(dayMap.values())
             .sort((a, b) => a.date.localeCompare(b.date))
-            .map((d) => ({
-                ...d,
-                label: new Date(d.date).toLocaleDateString("en-AU", { day: "numeric", month: "short" }),
-            }));
-    })();
+            .map((d) => {
+                const total = d.adultCafe + d.adultRetail + d.teenCafe + d.teenRetail;
+                return {
+                    label: new Date(d.date + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short" }),
+                    adultCafe: total > 0 ? +((d.adultCafe / total) * 100).toFixed(1) : 0,
+                    adultRetail: total > 0 ? +((d.adultRetail / total) * 100).toFixed(1) : 0,
+                    teenCafe: total > 0 ? +((d.teenCafe / total) * 100).toFixed(1) : 0,
+                    teenRetail: total > 0 ? +((d.teenRetail / total) * 100).toFixed(1) : 0,
+                };
+            });
+    }, [shifts]);
 
     // ── 4-way split data for right chart ──
     const fourWayData = [
-        { segment: "Adult Café", hours: kpis.adultCafeHours, cost: kpis.adultCafeCost, color: COLORS.adultCafe },
-        { segment: "Adult Retail", hours: kpis.adultRetailHours, cost: kpis.adultRetailCost, color: COLORS.adultRetail },
-        { segment: "Teen Café", hours: kpis.teenCafeHours, cost: kpis.teenCafeCost, color: COLORS.teenCafe },
-        { segment: "Teen Retail", hours: kpis.teenRetailHours, cost: kpis.teenRetailCost, color: COLORS.teenRetail },
+        { segment: "Adult Café", hours: kpis.adultCafeHours, cost: kpis.adultCafeCost, color: "#6B7355" },
+        { segment: "Adult Retail", hours: kpis.adultRetailHours, cost: kpis.adultRetailCost, color: "#E07A5F" },
+        { segment: "Teen Café", hours: kpis.teenCafeHours, cost: kpis.teenCafeCost, color: "#81B29A" },
+        { segment: "Teen Retail", hours: kpis.teenRetailHours, cost: kpis.teenRetailCost, color: "#F2CC8F" },
     ];
     const totalCost4way = fourWayData.reduce((s, d) => s + d.cost, 0);
     const totalHours4way = fourWayData.reduce((s, d) => s + d.hours, 0);
+
+    // ── Tooltip state for right chart bars ──
+    const [hoveredBar, setHoveredBar] = useState<string | null>(null);
 
     return (
         <motion.div
@@ -221,11 +252,64 @@ export default function StaffPage() {
 
                     {/* Charts Row */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                        {/* Left: Labour Cost Line Chart */}
+                        {/* Left: Labour Cost % Line Chart with filter */}
                         <div className="bg-card rounded-xl border border-border p-6" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-                            <h3 className="text-base font-semibold text-foreground mb-4">
-                                Daily Labour Cost
-                            </h3>
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-base font-semibold text-foreground">
+                                    Labour Cost %
+                                </h3>
+                                {/* Segment filter dropdown */}
+                                <div className="relative" ref={segDropdownRef}>
+                                    <button
+                                        onClick={() => setSegDropdownOpen(!segDropdownOpen)}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-border bg-olive-surface hover:bg-olive/10 transition-colors cursor-pointer"
+                                    >
+                                        <span className="w-2 h-2 rounded-full bg-olive" />
+                                        Segments
+                                        <ChevronDown className={`w-3 h-3 transition-transform ${segDropdownOpen ? "rotate-180" : ""}`} />
+                                    </button>
+                                    {segDropdownOpen && (
+                                        <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-xl border border-border shadow-lg z-30 py-2">
+                                            {/* Select all / Clear */}
+                                            <div className="flex items-center justify-between px-3 pb-2 border-b border-border mb-1">
+                                                <button
+                                                    onClick={() => setActiveSegments(new Set(SEGMENTS.map((s) => s.key)))}
+                                                    className="text-[11px] font-medium text-olive hover:underline cursor-pointer"
+                                                >
+                                                    Select all
+                                                </button>
+                                                <span className="text-[10px] text-muted-foreground tabular-nums">
+                                                    {activeSegments.size}/{SEGMENTS.length}
+                                                </span>
+                                                <button
+                                                    onClick={() => setActiveSegments(new Set())}
+                                                    className="text-[11px] font-medium text-coral hover:underline cursor-pointer"
+                                                >
+                                                    Clear all
+                                                </button>
+                                            </div>
+                                            {SEGMENTS.map((seg) => (
+                                                <label
+                                                    key={seg.key}
+                                                    className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-olive-surface/50 cursor-pointer transition-colors"
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={activeSegments.has(seg.key)}
+                                                        onChange={() => toggleSegment(seg.key)}
+                                                        className="w-3.5 h-3.5 rounded border-border accent-olive cursor-pointer"
+                                                    />
+                                                    <span
+                                                        className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                                        style={{ backgroundColor: seg.color }}
+                                                    />
+                                                    <span className="text-xs text-foreground">{seg.label}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                             <ResponsiveContainer width="100%" height={280}>
                                 <LineChart data={dailyLineData}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#F0F0EE" vertical={false} />
@@ -240,7 +324,8 @@ export default function StaffPage() {
                                         tick={{ fill: "#8A8A8A", fontSize: 11 }}
                                         axisLine={false}
                                         tickLine={false}
-                                        tickFormatter={(v: number) => `$${v}`}
+                                        tickFormatter={(v: number) => `${v}%`}
+                                        domain={[0, 100]}
                                     />
                                     <RechartsTooltip
                                         contentStyle={{
@@ -251,21 +336,31 @@ export default function StaffPage() {
                                             fontSize: 13,
                                             padding: "12px 16px",
                                         }}
-                                        formatter={(v: number, name: string) => [
-                                            formatCurrency(v),
-                                            name === "cafe" ? "☕ Café" : name === "retail" ? "🛍 Retail" : name === "teen" ? "👦 Teen" : "👤 Adult",
-                                        ]}
+                                        formatter={(v: number, name: string) => {
+                                            const seg = SEGMENTS.find((s) => s.key === name);
+                                            return [`${v.toFixed(1)}%`, seg ? `${seg.emoji} ${seg.label}` : name];
+                                        }}
                                     />
                                     <Legend
-                                        formatter={(v: string) =>
-                                            v === "cafe" ? "☕ Café" : v === "retail" ? "🛍 Retail" : v === "teen" ? "👦 Teen" : "👤 Adult"
-                                        }
+                                        formatter={(v: string) => {
+                                            const seg = SEGMENTS.find((s) => s.key === v);
+                                            return seg ? `${seg.emoji} ${seg.label}` : v;
+                                        }}
                                         wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
                                     />
-                                    <Line type="monotone" dataKey="cafe" stroke={COLORS.cafe} strokeWidth={2} dot={false} />
-                                    <Line type="monotone" dataKey="retail" stroke={COLORS.retail} strokeWidth={2} dot={false} />
-                                    <Line type="monotone" dataKey="teen" stroke={COLORS.teen} strokeWidth={2} dot={false} strokeDasharray="6 3" />
-                                    <Line type="monotone" dataKey="adult" stroke={COLORS.adult} strokeWidth={2} dot={false} strokeDasharray="6 3" />
+                                    {SEGMENTS.map((seg) =>
+                                        activeSegments.has(seg.key) ? (
+                                            <Line
+                                                key={seg.key}
+                                                type="monotone"
+                                                dataKey={seg.key}
+                                                stroke={seg.color}
+                                                strokeWidth={2}
+                                                dot={false}
+                                                strokeDasharray={seg.key.startsWith("teen") ? "6 3" : undefined}
+                                            />
+                                        ) : null
+                                    )}
                                 </LineChart>
                             </ResponsiveContainer>
                         </div>
@@ -279,28 +374,42 @@ export default function StaffPage() {
                                 {fourWayData.map((seg) => {
                                     const pct = totalCost4way > 0 ? (seg.cost / totalCost4way) * 100 : 0;
                                     const revPerHr = seg.hours > 0 ? netSales * (seg.hours / totalHours4way) / seg.hours : 0;
+                                    const isHovered = hoveredBar === seg.segment;
+                                    // Dark bars (#6B7355, #81B29A) → white text; light bars (#E07A5F, #F2CC8F) → dark text
+                                    const isDarkBar = seg.color === "#6B7355" || seg.color === "#81B29A";
+                                    const barTextColor = isDarkBar ? "#FFFFFF" : "#1A1A1A";
+
                                     return (
-                                        <div key={seg.segment} className="group relative">
+                                        <div key={seg.segment}>
                                             <div className="flex items-center justify-between mb-1">
                                                 <span className="text-sm font-medium text-foreground">{seg.segment}</span>
                                                 <span className="text-sm font-semibold text-foreground tabular-nums">{formatCurrency(seg.cost)}</span>
                                             </div>
-                                            <div className="relative h-7 bg-muted/40 rounded-lg overflow-hidden">
+                                            <div
+                                                className="relative h-7 bg-muted/40 rounded-lg overflow-hidden cursor-default"
+                                                onMouseEnter={() => setHoveredBar(seg.segment)}
+                                                onMouseLeave={() => setHoveredBar(null)}
+                                            >
                                                 <div
                                                     className="absolute inset-y-0 left-0 rounded-lg transition-all duration-700 ease-out"
                                                     style={{ width: `${Math.max(pct, 1)}%`, backgroundColor: seg.color }}
                                                 />
-                                                <span className="absolute inset-0 flex items-center px-3 text-xs font-semibold text-white mix-blend-difference tabular-nums">
+                                                <span
+                                                    className="absolute inset-0 flex items-center px-3 text-xs font-semibold tabular-nums"
+                                                    style={{ color: barTextColor }}
+                                                >
                                                     {pct.toFixed(1)}% · {seg.hours.toFixed(1)}h
                                                 </span>
-                                            </div>
-                                            {/* Hover tooltip */}
-                                            <div className="invisible group-hover:visible absolute left-1/2 -translate-x-1/2 bottom-full mb-2 bg-foreground text-background rounded-lg px-4 py-2.5 text-xs whitespace-nowrap z-20 shadow-lg">
-                                                <div className="font-semibold mb-1">{seg.segment}</div>
-                                                <div>Hours: {seg.hours.toFixed(1)}h ({totalHours4way > 0 ? ((seg.hours / totalHours4way) * 100).toFixed(1) : 0}%)</div>
-                                                <div>Cost: {formatCurrency(seg.cost)} ({pct.toFixed(1)}%)</div>
-                                                <div>Rev/hr: {formatCurrency(revPerHr)}</div>
-                                                <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-transparent border-t-foreground" />
+                                                {/* Tooltip on bar hover */}
+                                                {isHovered && (
+                                                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 bg-foreground text-background rounded-lg px-4 py-2.5 text-xs whitespace-nowrap z-20 shadow-lg pointer-events-none">
+                                                        <div className="font-semibold mb-1">{seg.segment}</div>
+                                                        <div>Hours: {seg.hours.toFixed(1)}h ({totalHours4way > 0 ? ((seg.hours / totalHours4way) * 100).toFixed(1) : 0}%)</div>
+                                                        <div>Cost: {formatCurrency(seg.cost)} ({pct.toFixed(1)}%)</div>
+                                                        <div>Rev/hr: {formatCurrency(revPerHr)}</div>
+                                                        <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-transparent border-t-foreground" />
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     );
@@ -435,6 +544,15 @@ export default function StaffPage() {
                                         </span>
                                     </div>
                                 </div>
+
+                                {/* Total Earnings bar — OUTSIDE scroll area so it stays visible */}
+                                {totalEarnings > 0 && (
+                                    <div className="px-6 py-2.5 bg-olive-surface/40 border-b border-border flex items-center justify-between">
+                                        <span className="text-xs font-semibold text-olive">Total Earnings</span>
+                                        <span className="text-sm font-bold text-olive tabular-nums">{formatCurrency(totalEarnings)}</span>
+                                    </div>
+                                )}
+
                                 <div className="max-h-[480px] overflow-y-auto">
                                     <table className="w-full text-sm table-fixed">
                                         <colgroup>
@@ -474,18 +592,6 @@ export default function StaffPage() {
                                                     <span className="inline-flex items-center justify-center gap-1">Breaks<SortIcon col="breaks" /></span>
                                                 </th>
                                             </tr>
-                                            {/* Total Earnings row */}
-                                            {totalEarnings > 0 && (
-                                                <tr className="bg-olive-surface/40 border-b border-border">
-                                                    <td className="px-4 py-2 text-xs font-semibold text-olive" colSpan={2}>
-                                                        Total Earnings
-                                                    </td>
-                                                    <td className="px-4 py-2 text-right tabular-nums font-bold text-olive text-sm">
-                                                        {formatCurrency(totalEarnings)}
-                                                    </td>
-                                                    <td colSpan={5}></td>
-                                                </tr>
-                                            )}
                                         </thead>
                                         <tbody>
                                             {sortedRates.map((r, i) => {

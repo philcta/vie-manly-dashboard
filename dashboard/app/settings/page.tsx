@@ -72,11 +72,11 @@ export default function SettingsPage() {
     const [atRiskDays, setAtRiskDays] = useState(30);
     const [churnedDays, setChurnedDays] = useState(45);
 
-    const inputStyle = "w-full px-3 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-olive/20 focus:border-olive transition-colors";
+    const inputStyle = "w-full px-3 py-2.5 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-olive/20 focus:border-olive transition-colors";
     const labelStyle = "text-sm font-medium text-text-body mb-1 block";
 
     return (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-5 max-w-4xl">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-5">
             <h1 className="text-[28px] font-bold text-foreground">Settings</h1>
 
             {/* General */}
