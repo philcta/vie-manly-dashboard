@@ -136,15 +136,51 @@ export async function fetchMemberAllTimeTable(): Promise<MemberPeriodRow[]> {
     }));
 }
 
-/** Build members table with period-specific spending + lifetime loyalty */
+/** Per-member spending patterns with Cafe/Retail splits + 30-day trend */
+export interface SpendingPattern {
+    customer_id: string;
+    alltime_avg_spend: number;
+    alltime_cafe_spent: number;
+    alltime_retail_spent: number;
+    last30_total_spent: number;
+    last30_visits: number;
+    last30_avg_spend: number;
+    last30_cafe_spent: number;
+    last30_retail_spent: number;
+    /** Positive = spending dropped, Negative = spending increased */
+    spend_drop_pct: number;
+}
+
+/** Fetch member spending patterns (all-time vs last 30 days, Cafe/Retail breakdown) */
+export async function fetchMemberSpendingPatterns(): Promise<SpendingPattern[]> {
+    const { data, error } = await supabase.rpc("get_member_spending_patterns");
+    if (error) throw error;
+
+    return (data || []).map((r: Record<string, unknown>) => ({
+        customer_id: String(r.customer_id || ""),
+        alltime_avg_spend: Number(r.alltime_avg_spend) || 0,
+        alltime_cafe_spent: Number(r.alltime_cafe_spent) || 0,
+        alltime_retail_spent: Number(r.alltime_retail_spent) || 0,
+        last30_total_spent: Number(r.last30_total_spent) || 0,
+        last30_visits: Number(r.last30_visits) || 0,
+        last30_avg_spend: Number(r.last30_avg_spend) || 0,
+        last30_cafe_spent: Number(r.last30_cafe_spent) || 0,
+        last30_retail_spent: Number(r.last30_retail_spent) || 0,
+        spend_drop_pct: Number(r.spend_drop_pct) || 0,
+    }));
+}
+
+/** Build members table with period-specific spending + lifetime loyalty + spending patterns */
 export function buildPeriodMembers(
     members: Member[],
     periodStats: MemberPeriodRow[],
     loyalty: MemberLoyalty[],
     latestStats: MemberDailyStats[],
+    spendingPatterns?: SpendingPattern[],
 ) {
     const memberMap = new Map(members.map((m) => [m.square_customer_id, m]));
     const loyaltyMap = new Map(loyalty.map((l) => [l.customer_id, l]));
+    const patternMap = new Map((spendingPatterns || []).map((p) => [p.customer_id, p]));
 
     // Build latest-stats map for days_since_last_visit
     const latestByMember = new Map<string, MemberDailyStats>();
@@ -161,6 +197,7 @@ export function buildPeriodMembers(
             const member = memberMap.get(s.customer_id);
             const loy = loyaltyMap.get(s.customer_id);
             const latest = latestByMember.get(s.customer_id);
+            const pattern = patternMap.get(s.customer_id);
             // Compute days since last visit dynamically from the date of the
             // last member_daily_stats row, not the stale snapshot column.
             const daysSince = latest?.date
@@ -188,6 +225,14 @@ export function buildPeriodMembers(
                 pointsRedeemed: loy?.points_redeemed ?? 0,
                 daysSinceLastVisit: daysSince,
                 status,
+                // Spending patterns (Cafe/Retail splits + 30-day trend)
+                avgSpendCafe: pattern ? (pattern.alltime_cafe_spent / Math.max(s.visits, 1)) : 0,
+                avgSpendRetail: pattern ? (pattern.alltime_retail_spent / Math.max(s.visits, 1)) : 0,
+                last30AvgSpend: pattern?.last30_avg_spend ?? 0,
+                last30CafeSpent: pattern?.last30_cafe_spent ?? 0,
+                last30RetailSpent: pattern?.last30_retail_spent ?? 0,
+                last30Visits: pattern?.last30_visits ?? 0,
+                spendDropPct: pattern?.spend_drop_pct ?? 0,
             };
         });
 }

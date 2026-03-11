@@ -15,6 +15,7 @@ import {
     fetchMemberHistoricalSeries,
     fetchMemberPeriodKPIs,
     fetchLoyaltyPeriodKPIs,
+    fetchMemberSpendingPatterns,
     buildPeriodMembers,
     aggregateLoyaltyInsights,
     type MemberPeriodKPIs,
@@ -44,6 +45,13 @@ interface MemberRow {
     totalSpent: number;
     visits: number;
     avgSpend: number;
+    avgSpendCafe: number;
+    avgSpendRetail: number;
+    last30AvgSpend: number;
+    last30CafeSpent: number;
+    last30RetailSpent: number;
+    last30Visits: number;
+    spendDropPct: number;
     points: number;
     lifetimePoints: number;
     pointsRedeemed: number;
@@ -115,7 +123,111 @@ const MEMBER_COLUMNS: ColumnDef<MemberRow>[] = [
         label: "Avg Spend",
         align: "right",
         sortValue: (r) => r.avgSpend,
-        render: (r) => <span className="tabular-nums text-foreground">{formatCurrency(r.avgSpend)}</span>,
+        render: (r) => (
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <span className="tabular-nums text-foreground cursor-help border-b border-dotted border-muted-foreground/40">
+                        {formatCurrency(r.avgSpend)}
+                    </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                    <div className="flex flex-col gap-0.5">
+                        <span>☕ Cafe: {formatCurrency(r.avgSpendCafe)}/visit</span>
+                        <span>🛍️ Retail: {formatCurrency(r.avgSpendRetail)}/visit</span>
+                    </div>
+                </TooltipContent>
+            </Tooltip>
+        ),
+    },
+    {
+        key: "last30AvgSpend",
+        label: "30d Avg",
+        align: "right",
+        sortValue: (r) => r.last30AvgSpend,
+        render: (r) => {
+            if (r.last30Visits === 0) {
+                return <span className="text-muted-foreground italic text-xs">No visits</span>;
+            }
+            return (
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <span className="tabular-nums text-foreground cursor-help border-b border-dotted border-muted-foreground/40">
+                            {formatCurrency(r.last30AvgSpend)}
+                        </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">
+                        <div className="flex flex-col gap-0.5">
+                            <span>☕ Cafe: {formatCurrency(r.last30CafeSpent)}</span>
+                            <span>🛍️ Retail: {formatCurrency(r.last30RetailSpent)}</span>
+                            <span className="text-muted-foreground mt-0.5">{r.last30Visits} visit{r.last30Visits !== 1 ? 's' : ''} in 30d</span>
+                        </div>
+                    </TooltipContent>
+                </Tooltip>
+            );
+        },
+    },
+    {
+        key: "spendDropPct",
+        label: "Trend",
+        align: "center",
+        sortValue: (r) => r.spendDropPct,
+        render: (r) => {
+            const drop = r.spendDropPct;
+            if (r.last30Visits === 0) {
+                return (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span className="inline-flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-600 cursor-help">
+                                ⚠️ Inactive
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs max-w-[200px]">
+                            No visits in the last 30 days. Previously averaged {formatCurrency(r.avgSpend)}/visit.
+                        </TooltipContent>
+                    </Tooltip>
+                );
+            }
+            if (drop >= 50) {
+                return (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span className="inline-flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-600 cursor-help animate-pulse">
+                                🔻 {drop.toFixed(0)}%
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs max-w-[220px]">
+                            Spending dropped {drop.toFixed(0)}% in 30d. Was {formatCurrency(r.avgSpend)}, now {formatCurrency(r.last30AvgSpend)}.
+                        </TooltipContent>
+                    </Tooltip>
+                );
+            }
+            if (drop >= 25) {
+                return (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span className="inline-flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 cursor-help">
+                                📉 {drop.toFixed(0)}%
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs max-w-[220px]">
+                            Spending slowed by {drop.toFixed(0)}% in 30d. Was {formatCurrency(r.avgSpend)}, now {formatCurrency(r.last30AvgSpend)}.
+                        </TooltipContent>
+                    </Tooltip>
+                );
+            }
+            if (drop < 0) {
+                return (
+                    <span className="inline-flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                        📈 +{Math.abs(drop).toFixed(0)}%
+                    </span>
+                );
+            }
+            return (
+                <span className="inline-flex items-center gap-0.5 text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                    — Stable
+                </span>
+            );
+        },
     },
     {
         key: "lifetimePoints",
@@ -212,6 +324,7 @@ export default function MembersPage() {
                 series,
                 compSeries,
                 historicalSeries,
+                spendingPatterns,
             ] = await Promise.all([
                 fetchMembers(),
                 fetchMemberLoyalty(),
@@ -223,6 +336,7 @@ export default function MembersPage() {
                 fetchMemberRevenueSeries(range.startDate, range.endDate),
                 fetchMemberRevenueSeries(compRange.startDate, compRange.endDate),
                 fetchMemberHistoricalSeries(historicalStartDate, range.endDate),
+                fetchMemberSpendingPatterns(),
             ]);
 
             // Derive all-time per-member stats from latestMemberStats
@@ -254,7 +368,7 @@ export default function MembersPage() {
             setLoyaltyInsights(aggregateLoyaltyInsights(activeLoyalty));
 
             // Members table — ALL-TIME spending + lifetime loyalty (not period-filtered)
-            setAllMembers(buildPeriodMembers(activeMembers, allTimeStats, activeLoyalty, stats) as MemberRow[]);
+            setAllMembers(buildPeriodMembers(activeMembers, allTimeStats, activeLoyalty, stats, spendingPatterns) as MemberRow[]);
 
             // Build MemberDailyRow from series data (all pre-computed in Supabase)
             const toRow = (s: typeof series[0]): MemberDailyRow => ({
