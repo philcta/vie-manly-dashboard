@@ -122,6 +122,11 @@ const TREND_OPTIONS: { value: TrendType; label: string; icon: string; tip?: stri
     { value: "ma_3mo", label: "3mo Avg", icon: "〰" },
 ];
 
+// ── Store opening date — no ratio-metric data shown before this ──
+const STORE_OPENING_DATE = "2025-08-20";
+// 3mo avg / trend only begins 90 days after opening
+const STORE_TREND_START = "2025-11-18";
+
 // ── Trend math ──────────────────────────────────────────────────
 
 function linearRegression(values: number[]): number[] {
@@ -300,15 +305,23 @@ export function MetricTimeSeriesChart({
         return buildMetricData(compDailyStats, compCategoryData, compDailyLabour, metric, side, effectiveMargin, compCategoryDetailData, selectedCategories);
     }, [metric, side, compDailyStats, compCategoryData, compDailyLabour, effectiveMargin, compCategoryDetailData, selectedCategories]);
 
-    // ── Store opening date — exclude pre-opening data from ratio metrics ──
-    const STORE_OPENING_DATE = "2025-08-20";
+    // ── Filter chart data: remove pre-opening dates for ratio metrics ──
+    const isRatioMetric = metric === "real_profit_pct" || metric === "labour_pct";
 
+    const filteredChartData = useMemo(() => {
+        if (!isRatioMetric) return chartData;
+        return chartData.filter((d: { date?: string }) => (d.date as string) >= STORE_OPENING_DATE);
+    }, [chartData, isRatioMetric]);
+
+    const filteredCompChartData = useMemo(() => {
+        if (!isRatioMetric || !compChartData) return compChartData;
+        return compChartData.filter((d: { date?: string }) => (d.date as string) >= STORE_OPENING_DATE);
+    }, [compChartData, isRatioMetric]);
     // ── Build historical value map for moving averages ──
     const historicalValueMap = useMemo(() => {
         const map = new Map<string, number>();
         const labourMap = new Map<string, number>();
         for (const l of historicalLabour) labourMap.set(l.date, l.labour_cost);
-        const isRatioMetric = metric === "real_profit_pct" || metric === "labour_pct";
 
         if (side === "category" && selectedCategories.size > 0 && historicalCategoryDetailData.length > 0) {
             // Category-filtered: use historical category detail data
@@ -378,6 +391,8 @@ export function MetricTimeSeriesChart({
         sortedDates.forEach((d, i) => dateIndex.set(d, i));
 
         return (date: string, windowDays: number): number | null => {
+            // Don't show trend/3mo avg before the trend-start date for ratio metrics
+            if (isRatioMetric && date < STORE_TREND_START) return null;
             const idx = dateIndex.get(date);
             if (idx === undefined) return null;
             const startIdx = Math.max(0, idx - windowDays + 1);
@@ -390,24 +405,29 @@ export function MetricTimeSeriesChart({
             }
             return count > 0 ? Math.round((sum / count) * 100) / 100 : null;
         };
-    }, [historicalValueMap]);
+    }, [historicalValueMap, isRatioMetric]);
 
     // ── Merge current + comparison + trends ──
     const mergedData = useMemo(() => {
-        const values = chartData.map((d: { value?: number }) => d.value ?? 0);
+        const values = filteredChartData.map((d: { value?: number }) => d.value ?? 0);
 
-        const linearValues = activeTrends.has("linear") ? linearRegression(values) : null;
+        const linearValues = activeTrends.has("linear")
+            ? (isRatioMetric
+                // For ratio metrics, only regress on post-opening data
+                ? linearRegression(values)
+                : linearRegression(values))
+            : null;
         const ma3Values = activeTrends.has("ma_3mo")
-            ? chartData.map((d: { date?: string }) => computeAvg(d.date as string, 90))
+            ? filteredChartData.map((d: { date?: string }) => computeAvg(d.date as string, 90))
             : null;
 
-        return chartData.map((row: Record<string, unknown>, i: number) => ({
+        return filteredChartData.map((row: Record<string, unknown>, i: number) => ({
             ...row,
-            comparison: compChartData && compChartData[i] ? (compChartData[i] as { value: number }).value : undefined,
+            comparison: filteredCompChartData && filteredCompChartData[i] ? (filteredCompChartData[i] as { value: number }).value : undefined,
             trend_linear: linearValues ? linearValues[i] : undefined,
             trend_ma3: ma3Values ? ma3Values[i] : undefined,
         }));
-    }, [chartData, compChartData, activeTrends, computeAvg]);
+    }, [filteredChartData, filteredCompChartData, activeTrends, computeAvg, isRatioMetric]);
 
     // ── Trend badge computation (only for 3mo avg, not linear) ──
     const trendBadge = useMemo(() => {
