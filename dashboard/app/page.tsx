@@ -205,11 +205,8 @@ export default function OverviewPage() {
   const labourRatio = cs && cs.netSales > 0 ? (labourCost / cs.netSales) * 100 : 0;
   const compLabourRatio = ps && ps.netSales > 0 ? (compLabourCost / ps.netSales) * 100 : 0;
 
-  // Real Profit Margin: Avg margin minus labour ratio
-  // avgMargin is the inventory cost margin (what's left after COGS)
-  // realMargin = avgMargin - labourRatio (what's left after COGS + labour)
-  const realMargin = overallMargin - labourRatio;
-  const compRealMargin = overallMargin - compLabourRatio;
+  // Real Profit Margin: weighted avg margin minus labour ratio
+  // (computed after effectiveMargin below)
 
   // Weighted margin by sales mix — category-level (most accurate)
   // Uses each category's individual margin from inventory_margins, weighted by
@@ -232,6 +229,10 @@ export default function OverviewPage() {
 
   const effectiveMargin = computeWeightedMargin(catSalesTotals, marginData);
   const compEffectiveMargin = computeWeightedMargin(compCatSalesTotals, marginData);
+
+  // Real Profit Margin: weighted margin minus labour ratio
+  const realMargin = effectiveMargin - labourRatio;
+  const compRealMargin = compEffectiveMargin - compLabourRatio;
 
   // Real Profit $ = Net Sales × (Effective Margin / 100) - Labour Cost
   // i.e. gross profit from product markup minus labour
