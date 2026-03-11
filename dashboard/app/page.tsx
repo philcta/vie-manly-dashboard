@@ -289,8 +289,8 @@ export default function OverviewPage() {
               </div>
             )}
 
-            {/* Row 1: 6 cards */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            {/* Row 1: 4 cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <KpiCard
                 label="Net Sales"
                 value={cs?.netSales ?? 0}
@@ -325,6 +325,10 @@ export default function OverviewPage() {
                 subtitle={`Cafe: ${formatNumber(catAgg.cafeTransactions)} · Retail: ${formatNumber(catAgg.retailTransactions)}`}
                 delay={3}
               />
+            </div>
+
+            {/* Row 2: 4 cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
               <KpiCard
                 label="Customers"
                 value={cs?.totalCustomers ?? 0}
@@ -343,10 +347,6 @@ export default function OverviewPage() {
                 subtitle={`Cafe: ${formatCurrency(cafeAvgSale)} · Retail: ${formatCurrency(retailAvgSale)}`}
                 delay={5}
               />
-            </div>
-
-            {/* Row 2: 5 cards */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mt-3">
               <KpiCard
                 label="Labour Cost"
                 value={labourCost}
@@ -367,6 +367,10 @@ export default function OverviewPage() {
                 subtitle={`Cafe: ${formatPercent(cafeLabourRatio)} · Retail: ${formatPercent(retailLabourRatio)}`}
                 delay={7}
               />
+            </div>
+
+            {/* Row 3: 3 cards */}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3">
               <KpiCard
                 label="Avg Profit Margin"
                 value={effectiveMargin}

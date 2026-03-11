@@ -502,6 +502,65 @@ export default function MembersPage() {
                         </div>
                     )}
 
+                    {/* Row 3: Loyalty Insights */}
+                    {loyaltyInsights && (() => {
+                        const total = loyaltyInsights.neverRedeemed + loyaltyInsights.redeemedOnce + loyaltyInsights.redeemed2Plus;
+                        const neverPct = total > 0 ? ((loyaltyInsights.neverRedeemed / total) * 100).toFixed(1) : "0";
+                        const oncePct = total > 0 ? ((loyaltyInsights.redeemedOnce / total) * 100).toFixed(1) : "0";
+                        const twoPlusPct = total > 0 ? ((loyaltyInsights.redeemed2Plus / total) * 100).toFixed(1) : "0";
+                        const frequentNonRedeemers = allMembers.filter(
+                            (m) => m.visits >= 5 && (m.points as number) > 0 && (m.pointsRedeemed as number) === 0 && m.name !== "Unknown"
+                        );
+                        return (
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                                <div className="bg-card rounded-xl border border-border p-5" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+                                    <h4 className="text-sm font-semibold text-foreground mb-3">Points Overview</h4>
+                                    <div className="space-y-2 text-sm">
+                                        <div className="flex justify-between"><span className="text-text-muted">Total available</span><span className="font-medium tabular-nums">{formatNumber(totalLoyaltyPoints)}</span></div>
+                                        <div className="flex justify-between"><span className="text-text-muted">Avg balance / member</span><span className="font-medium tabular-nums">{formatNumber(loyaltyInsights.lifetimeAvg > 0 ? Math.round(totalLoyaltyPoints / totalEnrolled) : 0)}</span></div>
+                                        <div className="flex justify-between"><span className="text-text-muted">Avg redeemed / member</span><span className="font-medium tabular-nums">{formatNumber(loyaltyInsights.redeemedAvg)}</span></div>
+                                        <div className="flex justify-between"><span className="text-text-muted">Max lifetime</span><span className="font-medium tabular-nums">{formatNumber(loyaltyInsights.lifetimeMax)}</span></div>
+                                    </div>
+                                </div>
+                                <div className="bg-card rounded-xl border border-border p-5" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+                                    <h4 className="text-sm font-semibold text-foreground mb-3">Redemption Behaviour</h4>
+                                    <p className="text-2xl font-bold text-olive tabular-nums">{formatPercent(loyaltyInsights.redemptionPct)}</p>
+                                    <p className="text-xs text-text-muted mb-3">have redeemed at least once</p>
+                                    <div className="space-y-1.5 text-sm">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-text-muted">Never redeemed</span>
+                                            <span className="font-medium tabular-nums">{formatNumber(loyaltyInsights.neverRedeemed)} <span className="text-text-muted text-xs">({neverPct}%)</span></span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-text-muted">Redeemed once</span>
+                                            <span className="font-medium tabular-nums">{formatNumber(loyaltyInsights.redeemedOnce)} <span className="text-text-muted text-xs">({oncePct}%)</span></span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-text-muted">Redeemed 2+ times</span>
+                                            <span className="font-medium tabular-nums">{formatNumber(loyaltyInsights.redeemed2Plus)} <span className="text-text-muted text-xs">({twoPlusPct}%)</span></span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="bg-card rounded-xl border border-border p-5" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+                                    <h4 className="text-sm font-semibold text-foreground mb-3">🎯 Re-engagement Opportunity</h4>
+                                    <p className="text-2xl font-bold text-coral-dark tabular-nums">{frequentNonRedeemers.length}</p>
+                                    <p className="text-xs text-text-muted mb-3">frequent visitors (5+ visits) who never redeemed</p>
+                                    <div className="space-y-1 text-xs max-h-[100px] overflow-y-auto">
+                                        {frequentNonRedeemers.slice(0, 8).map((m, i) => (
+                                            <div key={i} className="flex justify-between items-center py-0.5">
+                                                <span className="text-text-body truncate mr-2">{m.name}</span>
+                                                <span className="font-medium tabular-nums text-olive whitespace-nowrap">{formatNumber(m.points as number)} pts</span>
+                                            </div>
+                                        ))}
+                                        {frequentNonRedeemers.length > 8 && (
+                                            <p className="text-text-muted italic pt-1">+ {frequentNonRedeemers.length - 8} more</p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
                     {/* Member Metric Time-Series Chart */}
                     <section>
                         <MemberMetricChart
@@ -571,66 +630,6 @@ export default function MembersPage() {
                             searchPlaceholder="Search by name or phone…"
                         />
                     </section>
-
-                    {/* Loyalty Insights */}
-                    {loyaltyInsights && (() => {
-                        const total = loyaltyInsights.neverRedeemed + loyaltyInsights.redeemedOnce + loyaltyInsights.redeemed2Plus;
-                        const neverPct = total > 0 ? ((loyaltyInsights.neverRedeemed / total) * 100).toFixed(1) : "0";
-                        const oncePct = total > 0 ? ((loyaltyInsights.redeemedOnce / total) * 100).toFixed(1) : "0";
-                        const twoPlusPct = total > 0 ? ((loyaltyInsights.redeemed2Plus / total) * 100).toFixed(1) : "0";
-                        // Find frequent visitors (5+ visits) who never redeemed — campaign targets
-                        const frequentNonRedeemers = allMembers.filter(
-                            (m) => m.visits >= 5 && (m.points as number) > 0 && (m.pointsRedeemed as number) === 0 && m.name !== "Unknown"
-                        );
-                        return (
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                                <div className="bg-card rounded-xl border border-border p-5" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-                                    <h4 className="text-sm font-semibold text-foreground mb-3">Points Overview</h4>
-                                    <div className="space-y-2 text-sm">
-                                        <div className="flex justify-between"><span className="text-text-muted">Total available</span><span className="font-medium tabular-nums">{formatNumber(totalLoyaltyPoints)}</span></div>
-                                        <div className="flex justify-between"><span className="text-text-muted">Avg balance / member</span><span className="font-medium tabular-nums">{formatNumber(loyaltyInsights.lifetimeAvg > 0 ? Math.round(totalLoyaltyPoints / totalEnrolled) : 0)}</span></div>
-                                        <div className="flex justify-between"><span className="text-text-muted">Avg redeemed / member</span><span className="font-medium tabular-nums">{formatNumber(loyaltyInsights.redeemedAvg)}</span></div>
-                                        <div className="flex justify-between"><span className="text-text-muted">Max lifetime</span><span className="font-medium tabular-nums">{formatNumber(loyaltyInsights.lifetimeMax)}</span></div>
-                                    </div>
-                                </div>
-                                <div className="bg-card rounded-xl border border-border p-5" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-                                    <h4 className="text-sm font-semibold text-foreground mb-3">Redemption Behaviour</h4>
-                                    <p className="text-2xl font-bold text-olive tabular-nums">{formatPercent(loyaltyInsights.redemptionPct)}</p>
-                                    <p className="text-xs text-text-muted mb-3">have redeemed at least once</p>
-                                    <div className="space-y-1.5 text-sm">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-text-muted">Never redeemed</span>
-                                            <span className="font-medium tabular-nums">{formatNumber(loyaltyInsights.neverRedeemed)} <span className="text-text-muted text-xs">({neverPct}%)</span></span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-text-muted">Redeemed once</span>
-                                            <span className="font-medium tabular-nums">{formatNumber(loyaltyInsights.redeemedOnce)} <span className="text-text-muted text-xs">({oncePct}%)</span></span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-text-muted">Redeemed 2+ times</span>
-                                            <span className="font-medium tabular-nums">{formatNumber(loyaltyInsights.redeemed2Plus)} <span className="text-text-muted text-xs">({twoPlusPct}%)</span></span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="bg-card rounded-xl border border-border p-5" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-                                    <h4 className="text-sm font-semibold text-foreground mb-3">🎯 Re-engagement Opportunity</h4>
-                                    <p className="text-2xl font-bold text-coral-dark tabular-nums">{frequentNonRedeemers.length}</p>
-                                    <p className="text-xs text-text-muted mb-3">frequent visitors (5+ visits) who never redeemed</p>
-                                    <div className="space-y-1 text-xs max-h-[100px] overflow-y-auto">
-                                        {frequentNonRedeemers.slice(0, 8).map((m, i) => (
-                                            <div key={i} className="flex justify-between items-center py-0.5">
-                                                <span className="text-text-body truncate mr-2">{m.name}</span>
-                                                <span className="font-medium tabular-nums text-olive whitespace-nowrap">{formatNumber(m.points as number)} pts</span>
-                                            </div>
-                                        ))}
-                                        {frequentNonRedeemers.length > 8 && (
-                                            <p className="text-text-muted italic pt-1">+ {frequentNonRedeemers.length - 8} more</p>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })()}
 
                 </>
             )}
