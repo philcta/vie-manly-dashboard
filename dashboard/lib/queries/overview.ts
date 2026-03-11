@@ -136,6 +136,22 @@ export async function fetchCategoryDaily(
     return (data || []) as CategoryDailyData[];
 }
 
+/** Fetch per-category (granular) daily stats for category filter on charts.
+ *  Returns individual categories (e.g. "Cafe Drinks", "Bread & Bakery") not sides. */
+export async function fetchCategoryDetailDaily(
+    startDate: string,
+    endDate: string
+): Promise<CategoryDailyData[]> {
+    const { data, error } = await supabase
+        .rpc("get_category_detail_daily", {
+            start_date: startDate,
+            end_date: endDate,
+        });
+
+    if (error) throw error;
+    return (data || []) as CategoryDailyData[];
+}
+
 /** Fetch total labour cost for a date range from staff_shifts */
 export async function fetchLabourCost(
     startDate: string,

@@ -10,6 +10,7 @@ import {
   fetchDailyStats,
   fetchHourlyData,
   fetchCategoryDaily,
+  fetchCategoryDetailDaily,
   fetchLabourCost,
   fetchLabourCostBySide,
   fetchDailyLabour,
@@ -61,6 +62,7 @@ export default function OverviewPage() {
   const [compHourlyData, setCompHourlyData] = useState<HourlyData[]>([]);
   const [categoryData, setCategoryData] = useState<CategoryDailyData[]>([]);
   const [compCategoryData, setCompCategoryData] = useState<CategoryDailyData[]>([]);
+  const [categoryDetailData, setCategoryDetailData] = useState<CategoryDailyData[]>([]);
   const [labourCost, setLabourCost] = useState(0);
   const [compLabourCost, setCompLabourCost] = useState(0);
   const [dailyLabour, setDailyLabour] = useState<DailyLabour[]>([]);
@@ -115,6 +117,7 @@ export default function OverviewPage() {
         histLabour,
         labSide,
         compLabSide,
+        catDetailData,
       ] = await Promise.all([
         fetchDailyStats(startDate, endDate),
         fetchDailyStats(compStart, compEnd),
@@ -140,6 +143,7 @@ export default function OverviewPage() {
         fetchDailyLabour(histStart, endDate),
         fetchLabourCostBySide(startDate, endDate),
         fetchLabourCostBySide(compStart, compEnd),
+        fetchCategoryDetailDaily(startDate, endDate),
       ]);
 
       setDailyRows(dRows);
@@ -161,6 +165,7 @@ export default function OverviewPage() {
       setHistoricalLabour(histLabour);
       setLabourBySide(labSide);
       setCompLabourBySide(compLabSide);
+      setCategoryDetailData(catDetailData);
 
       // Process margin data
       const margins = (marginsResult.data || []) as MarginRow[];
@@ -419,6 +424,7 @@ export default function OverviewPage() {
               historicalCategoryData={historicalCategoryData}
               historicalLabour={historicalLabour}
               effectiveMargin={effectiveMargin}
+              categoryDetailData={categoryDetailData}
             />
           </section>
 

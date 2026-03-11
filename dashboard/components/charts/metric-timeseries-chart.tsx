@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { ChevronDown } from "lucide-react";
 import {
     Area,
     Line,
@@ -27,7 +28,10 @@ export type MetricKey =
     | "real_profit_pct"
     | "labour_pct";
 
-type SideType = "all" | "cafe" | "retail";
+type SideType = "all" | "cafe" | "retail" | "category";
+
+// Metrics that don't support category filtering (need whole-store data)
+const CATEGORY_INCOMPATIBLE: Set<MetricKey> = new Set(["labour_pct", "real_profit_pct", "customers"]);
 
 interface MetricDef {
     label: string;
@@ -102,6 +106,7 @@ const SIDE_OPTIONS: { value: SideType; label: string }[] = [
     { value: "all", label: "All" },
     { value: "cafe", label: "Cafe" },
     { value: "retail", label: "Retail" },
+    { value: "category", label: "Category" },
 ];
 
 // ── Trend line types ────────────────────────────────────────────
@@ -146,6 +151,8 @@ interface MetricTimeSeriesChartProps {
     historicalLabour: DailyLabour[];
     /** Effective inventory margin % for computing daily Real Profit % */
     effectiveMargin: number;
+    /** Per-category (granular) daily stats for category filter */
+    categoryDetailData?: CategoryDailyData[];
 }
 
 // ── Helper: format date label ───────────────────────────────────
@@ -158,7 +165,81 @@ function dateLabel(dateStr: string): string {
 // ── Side label helper ───────────────────────────────────────────
 
 function sideLabel(side: SideType): string {
-    return side === "all" ? "" : side === "cafe" ? "Cafe " : "Retail ";
+    return side === "all" ? "" : side === "cafe" ? "Cafe " : side === "retail" ? "Retail " : "";
+}
+
+// ── Category multi-select filter dropdown ────────────────────────
+
+function CategoryFilterDropdown({
+    options,
+    selected,
+    onChange,
+}: {
+    options: string[];
+    selected: Set<string>;
+    onChange: (next: Set<string>) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+        };
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+    }, []);
+
+    const allSelected = options.length > 0 && selected.size === options.length;
+
+    return (
+        <div className="relative" ref={ref}>
+            <button
+                onClick={() => setOpen(!open)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-colors cursor-pointer border ${selected.size > 0
+                    ? "bg-olive text-white border-olive"
+                    : "bg-muted text-muted-foreground border-border hover:text-foreground"
+                    }`}
+            >
+                Category{selected.size > 0 && ` (${selected.size})`}
+                <ChevronDown size={12} />
+            </button>
+            {open && (
+                <div className="absolute z-50 mt-1 w-64 max-h-80 overflow-y-auto bg-card border border-border rounded-lg shadow-lg p-2 space-y-0.5">
+                    {/* Select All / Clear All */}
+                    <button
+                        onClick={() => {
+                            if (allSelected) {
+                                onChange(new Set());
+                            } else {
+                                onChange(new Set(options));
+                            }
+                        }}
+                        className="w-full flex items-center justify-between px-2 py-1.5 text-xs font-semibold rounded hover:bg-muted transition-colors cursor-pointer"
+                    >
+                        <span className="text-olive">{allSelected ? "Clear all" : "Select all"}</span>
+                        <span className="text-muted-foreground text-[10px]">{selected.size}/{options.length}</span>
+                    </button>
+                    <div className="border-b border-border my-1" />
+                    {options.map((opt) => (
+                        <label key={opt} className="flex items-center gap-2 px-2 py-1 text-xs cursor-pointer hover:bg-muted rounded">
+                            <input
+                                type="checkbox"
+                                checked={selected.has(opt)}
+                                onChange={() => {
+                                    const next = new Set(selected);
+                                    next.has(opt) ? next.delete(opt) : next.add(opt);
+                                    onChange(next);
+                                }}
+                                className="rounded border-border accent-olive"
+                            />
+                            {opt}
+                        </label>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
 }
 
 // ── Main component ──────────────────────────────────────────────
@@ -174,17 +255,36 @@ export function MetricTimeSeriesChart({
     historicalCategoryData,
     historicalLabour,
     effectiveMargin,
+    categoryDetailData = [],
 }: MetricTimeSeriesChartProps) {
     const [metric, setMetric] = useState<MetricKey>("net_sales");
     const [activeTrends, setActiveTrends] = useState<Set<TrendType>>(new Set(["ma_3mo"]));
     const [side, setSide] = useState<SideType>("all");
+    const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
     const def = METRICS[metric];
+
+    // Build unique category list from detail data
+    const allCategories = useMemo(() => {
+        const cats = new Set<string>();
+        for (const r of categoryDetailData) {
+            if (r.category) cats.add(r.category);
+        }
+        return Array.from(cats).sort();
+    }, [categoryDetailData]);
+
+    // When switching to Category mode, ensure we're on a compatible metric
+    const handleSideChange = (newSide: SideType) => {
+        setSide(newSide);
+        if (newSide === "category" && CATEGORY_INCOMPATIBLE.has(metric)) {
+            setMetric("net_sales");
+        }
+    };
 
     // ── Build chart data based on selected metric + side ──
 
     const chartData = useMemo(() => {
-        return buildMetricData(dailyStats, categoryData, dailyLabour, metric, side, effectiveMargin);
-    }, [metric, side, dailyStats, categoryData, dailyLabour, effectiveMargin]);
+        return buildMetricData(dailyStats, categoryData, dailyLabour, metric, side, effectiveMargin, categoryDetailData, selectedCategories);
+    }, [metric, side, dailyStats, categoryData, dailyLabour, effectiveMargin, categoryDetailData, selectedCategories]);
 
     const compChartData = useMemo(() => {
         return buildMetricData(compDailyStats, compCategoryData, compDailyLabour, metric, side, effectiveMargin);
@@ -307,7 +407,9 @@ export function MetricTimeSeriesChart({
     }
 
     // Dynamic title based on side + metric
-    const title = side === "all" ? def.label : `${side === "cafe" ? "Cafe" : "Retail"} — ${def.label}`;
+    const title = side === "all" ? def.label
+        : side === "category" ? (selectedCategories.size > 0 ? `${selectedCategories.size} Categories — ${def.label}` : def.label)
+            : `${side === "cafe" ? "Cafe" : "Retail"} — ${def.label}`;
 
     return (
         <div
@@ -326,7 +428,7 @@ export function MetricTimeSeriesChart({
                     {SIDE_OPTIONS.map((opt) => (
                         <button
                             key={opt.value}
-                            onClick={() => setSide(opt.value)}
+                            onClick={() => handleSideChange(opt.value)}
                             className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200 cursor-pointer whitespace-nowrap ${side === opt.value
                                 ? "bg-[#3B4A2A] text-white shadow-sm"
                                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -336,6 +438,15 @@ export function MetricTimeSeriesChart({
                         </button>
                     ))}
                 </div>
+
+                {/* Category multi-select filter (visible when side === "category") */}
+                {side === "category" && (
+                    <CategoryFilterDropdown
+                        options={allCategories}
+                        selected={selectedCategories}
+                        onChange={setSelectedCategories}
+                    />
+                )}
 
                 <div className="w-px h-5 bg-border" />
 
@@ -373,18 +484,24 @@ export function MetricTimeSeriesChart({
 
                 {/* Metric pills */}
                 <div className="flex items-center gap-1 rounded-lg border border-border bg-background p-0.5">
-                    {METRIC_ORDER.map((key) => (
-                        <button
-                            key={key}
-                            onClick={() => setMetric(key)}
-                            className={`px-2 py-1 text-xs font-medium rounded-md transition-all duration-200 cursor-pointer whitespace-nowrap ${metric === key
-                                ? "bg-olive text-white shadow-sm"
-                                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                                }`}
-                        >
-                            {METRICS[key].shortLabel}
-                        </button>
-                    ))}
+                    {METRIC_ORDER.map((key) => {
+                        const disabled = side === "category" && CATEGORY_INCOMPATIBLE.has(key);
+                        return (
+                            <button
+                                key={key}
+                                onClick={() => !disabled && setMetric(key)}
+                                disabled={disabled}
+                                className={`px-2 py-1 text-xs font-medium rounded-md transition-all duration-200 whitespace-nowrap ${disabled
+                                    ? "text-muted-foreground/40 cursor-not-allowed"
+                                    : metric === key
+                                        ? "bg-olive text-white shadow-sm cursor-pointer"
+                                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50 cursor-pointer"
+                                    }`}
+                            >
+                                {METRICS[key].shortLabel}
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
 
@@ -565,13 +682,39 @@ function buildMetricData(
     labour: DailyLabour[],
     metric: MetricKey,
     side: SideType,
-    effectiveMargin: number
+    effectiveMargin: number,
+    categoryDetailData?: CategoryDailyData[],
+    selectedCategories?: Set<string>,
 ) {
     const labourMap = new Map<string, number>();
     for (const l of labour) labourMap.set(l.date, l.labour_cost);
 
-    // For side-filtered sales metrics, build from categoryData
-    if (side !== "all" && metric !== "labour_pct" && metric !== "real_profit_pct" && metric !== "customers") {
+    // For category-filtered metrics, build from categoryDetailData
+    if (side === "category" && categoryDetailData && selectedCategories && selectedCategories.size > 0) {
+        const dayAgg = new Map<string, { date: string; net: number; gross: number; txn: number }>();
+        for (const r of categoryDetailData) {
+            if (!selectedCategories.has(r.category)) continue;
+            const entry = dayAgg.get(r.date) || { date: r.date, net: 0, gross: 0, txn: 0 };
+            entry.net += r.total_net_sales;
+            entry.gross += r.total_gross_sales;
+            entry.txn += r.transaction_count;
+            dayAgg.set(r.date, entry);
+        }
+        return Array.from(dayAgg.values())
+            .sort((a, b) => a.date.localeCompare(b.date))
+            .map((agg) => {
+                let value = 0;
+                switch (metric) {
+                    case "net_sales": value = agg.net; break;
+                    case "transactions": value = agg.txn; break;
+                    case "avg_sale": value = agg.txn > 0 ? Math.round((agg.net / agg.txn) * 100) / 100 : 0; break;
+                }
+                return { date: agg.date, label: dateLabel(agg.date), value };
+            });
+    }
+
+    // For side-filtered sales metrics (Cafe / Retail), build from categoryData
+    if ((side === "cafe" || side === "retail") && metric !== "labour_pct" && metric !== "real_profit_pct" && metric !== "customers") {
         const targetSide = side === "cafe" ? "Cafe" : "Retail";
         const dayAgg = new Map<string, { date: string; net: number; gross: number; txn: number }>();
         for (const r of categoryData) {
