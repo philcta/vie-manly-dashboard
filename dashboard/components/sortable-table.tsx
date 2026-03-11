@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect } from "react";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Search, X } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, ChevronRight, ChevronLeft, Search, X } from "lucide-react";
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -13,6 +13,12 @@ export interface ColumnDef<T> {
     /** Render cell content */
     render: (row: T) => React.ReactNode;
     align?: "left" | "right" | "center";
+    /** If set, this column belongs to a collapsible group.
+     *  The "parent" column has group = "groupName" and is always visible.
+     *  Child columns have group = "groupName" and are hidden when collapsed. */
+    group?: string;
+    /** If true, this is the parent column that triggers expand/collapse */
+    groupParent?: boolean;
 }
 
 interface SortableTableProps<T> {
@@ -46,6 +52,30 @@ export function SortableTable<T extends Record<string, unknown>>({
     const [searchQuery, setSearchQuery] = useState("");
     const [searchOpen, setSearchOpen] = useState(false);
     const searchInputRef = useRef<HTMLInputElement>(null);
+
+    // Track which groups are expanded
+    const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+    const toggleGroup = (groupName: string) => {
+        setExpandedGroups((prev) => {
+            const next = new Set(prev);
+            if (next.has(groupName)) next.delete(groupName);
+            else next.add(groupName);
+            return next;
+        });
+    };
+
+    // Determine visible columns (filter out collapsed group children)
+    const visibleColumns = useMemo(() => {
+        return columns.filter((col) => {
+            // No group? Always visible
+            if (!col.group) return true;
+            // Group parent? Always visible
+            if (col.groupParent) return true;
+            // Group child? Only visible if group is expanded
+            return expandedGroups.has(col.group);
+        });
+    }, [columns, expandedGroups]);
 
     const handleSort = (key: string) => {
         if (sortKey === key) {
@@ -108,6 +138,15 @@ export function SortableTable<T extends Record<string, unknown>>({
 
     const hasSearch = searchKeys && searchKeys.length > 0;
 
+    // Collect unique group names that have children
+    const groups = useMemo(() => {
+        const groupNames = new Set<string>();
+        for (const col of columns) {
+            if (col.group && !col.groupParent) groupNames.add(col.group);
+        }
+        return groupNames;
+    }, [columns]);
+
     return (
         <div
             className="bg-card rounded-xl border border-border overflow-hidden"
@@ -125,45 +164,73 @@ export function SortableTable<T extends Record<string, unknown>>({
                         </span>
                     )}
                 </div>
-                {hasSearch && (
-                    <div className="flex items-center gap-2">
-                        {searchOpen ? (
-                            <div className="flex items-center gap-1.5 bg-[#FAFAF8] border border-border rounded-lg px-3 py-1.5 transition-all duration-200">
-                                <Search className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                                <input
-                                    ref={searchInputRef}
-                                    type="text"
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    placeholder={searchPlaceholder}
-                                    className="bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none w-48"
-                                />
-                                {searchQuery && (
+                <div className="flex items-center gap-2">
+                    {/* Group expand/collapse toggles */}
+                    {groups.size > 0 && (
+                        <div className="flex items-center gap-1 mr-2">
+                            {Array.from(groups).map((groupName) => {
+                                const isExpanded = expandedGroups.has(groupName);
+                                return (
                                     <button
-                                        onClick={() => setSearchQuery("")}
-                                        className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                                        key={groupName}
+                                        onClick={() => toggleGroup(groupName)}
+                                        className={`flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-all duration-200 cursor-pointer ${isExpanded
+                                                ? "bg-olive/10 text-olive"
+                                                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                                            }`}
+                                        title={isExpanded ? `Collapse ${groupName}` : `Expand ${groupName}`}
                                     >
-                                        <X className="w-3.5 h-3.5" />
+                                        {isExpanded ? (
+                                            <ChevronLeft className="w-3 h-3" />
+                                        ) : (
+                                            <ChevronRight className="w-3 h-3" />
+                                        )}
+                                        {groupName}
                                     </button>
-                                )}
+                                );
+                            })}
+                        </div>
+                    )}
+                    {hasSearch && (
+                        <>
+                            {searchOpen ? (
+                                <div className="flex items-center gap-1.5 bg-[#FAFAF8] border border-border rounded-lg px-3 py-1.5 transition-all duration-200">
+                                    <Search className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                                    <input
+                                        ref={searchInputRef}
+                                        type="text"
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        placeholder={searchPlaceholder}
+                                        className="bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none w-48"
+                                    />
+                                    {searchQuery && (
+                                        <button
+                                            onClick={() => setSearchQuery("")}
+                                            className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                                        >
+                                            <X className="w-3.5 h-3.5" />
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={() => { setSearchQuery(""); setSearchOpen(false); }}
+                                        className="text-xs text-muted-foreground hover:text-foreground ml-1 cursor-pointer"
+                                    >
+                                        Close
+                                    </button>
+                                </div>
+                            ) : (
                                 <button
-                                    onClick={() => { setSearchQuery(""); setSearchOpen(false); }}
-                                    className="text-xs text-muted-foreground hover:text-foreground ml-1 cursor-pointer"
+                                    onClick={() => setSearchOpen(true)}
+                                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer px-2.5 py-1.5 rounded-lg hover:bg-[#FAFAF8]"
                                 >
-                                    Close
+                                    <Search className="w-3.5 h-3.5" />
+                                    Search
                                 </button>
-                            </div>
-                        ) : (
-                            <button
-                                onClick={() => setSearchOpen(true)}
-                                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer px-2.5 py-1.5 rounded-lg hover:bg-[#FAFAF8]"
-                            >
-                                <Search className="w-3.5 h-3.5" />
-                                Search
-                            </button>
-                        )}
-                    </div>
-                )}
+                            )}
+                        </>
+                    )}
+                </div>
             </div>
 
             {/* Table */}
@@ -171,35 +238,54 @@ export function SortableTable<T extends Record<string, unknown>>({
                 <table className="w-full">
                     <thead className="sticky top-0 z-10">
                         <tr className="bg-[#FAFAF8]">
-                            {columns.map((col) => (
-                                <th
-                                    key={col.key}
-                                    onClick={() => handleSort(col.key)}
-                                    className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors ${alignClass(col.align)}`}
-                                >
-                                    <span className="inline-flex items-center gap-1">
-                                        {col.label}
-                                        {sortKey === col.key ? (
-                                            sortDir === "asc" ? (
-                                                <ChevronUp className="w-3.5 h-3.5 text-olive" />
-                                            ) : (
-                                                <ChevronDown className="w-3.5 h-3.5 text-olive" />
-                                            )
-                                        ) : (
-                                            <ChevronsUpDown className="w-3.5 h-3.5 opacity-30" />
-                                        )}
-                                    </span>
-                                </th>
-                            ))}
+                            {visibleColumns.map((col) => {
+                                const isGroupParent = col.groupParent && col.group;
+                                const isExpanded = col.group ? expandedGroups.has(col.group) : false;
+                                return (
+                                    <th
+                                        key={col.key}
+                                        className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body select-none transition-colors ${alignClass(col.align)} ${col.sortValue || col.key ? "cursor-pointer hover:text-foreground" : ""}`}
+                                    >
+                                        <span className="inline-flex items-center gap-1">
+                                            {isGroupParent && (
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); toggleGroup(col.group!); }}
+                                                    className="cursor-pointer hover:text-olive transition-colors"
+                                                >
+                                                    {isExpanded ? (
+                                                        <ChevronLeft className="w-3 h-3" />
+                                                    ) : (
+                                                        <ChevronRight className="w-3 h-3" />
+                                                    )}
+                                                </button>
+                                            )}
+                                            <span onClick={() => handleSort(col.key)}>
+                                                {col.label}
+                                            </span>
+                                            <span onClick={() => handleSort(col.key)} className="cursor-pointer">
+                                                {sortKey === col.key ? (
+                                                    sortDir === "asc" ? (
+                                                        <ChevronUp className="w-3.5 h-3.5 text-olive" />
+                                                    ) : (
+                                                        <ChevronDown className="w-3.5 h-3.5 text-olive" />
+                                                    )
+                                                ) : (
+                                                    <ChevronsUpDown className="w-3.5 h-3.5 opacity-30" />
+                                                )}
+                                            </span>
+                                        </span>
+                                    </th>
+                                );
+                            })}
                         </tr>
                     </thead>
                     <tbody>
                         {sortedData.map((row, i) => (
                             <tr key={i} className="border-b border-[#F0F0EE] row-hover">
-                                {columns.map((col) => (
+                                {visibleColumns.map((col) => (
                                     <td
                                         key={col.key}
-                                        className={`px-4 py-3 text-sm ${alignClass(col.align)}`}
+                                        className={`px-4 py-3 text-sm ${alignClass(col.align)} ${col.group && !col.groupParent ? "bg-[#FAFAF8]/50" : ""}`}
                                     >
                                         {col.render(row)}
                                     </td>
@@ -209,7 +295,7 @@ export function SortableTable<T extends Record<string, unknown>>({
                         {sortedData.length === 0 && (
                             <tr>
                                 <td
-                                    colSpan={columns.length}
+                                    colSpan={visibleColumns.length}
                                     className="px-4 py-8 text-center text-muted-foreground text-sm"
                                 >
                                     {searchQuery

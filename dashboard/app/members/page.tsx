@@ -118,27 +118,33 @@ const MEMBER_COLUMNS: ColumnDef<MemberRow>[] = [
         sortValue: (r) => r.visits,
         render: (r) => <span className="tabular-nums text-foreground">{formatNumber(r.visits)}</span>,
     },
+    // ── Avg Spend group (expandable → Café, Retail) ──
     {
         key: "avgSpend",
         label: "Avg Spend",
         align: "right",
         sortValue: (r) => r.avgSpend,
-        render: (r) => (
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <span className="tabular-nums text-foreground cursor-help border-b border-dotted border-muted-foreground/40">
-                        {formatCurrency(r.avgSpend)}
-                    </span>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">
-                    <div className="flex flex-col gap-0.5">
-                        <span>☕ Cafe: {formatCurrency(r.avgSpendCafe)}/visit</span>
-                        <span>🛍️ Retail: {formatCurrency(r.avgSpendRetail)}/visit</span>
-                    </div>
-                </TooltipContent>
-            </Tooltip>
-        ),
+        render: (r) => <span className="tabular-nums font-medium text-foreground">{formatCurrency(r.avgSpend)}</span>,
+        group: "Avg Breakdown",
+        groupParent: true,
     },
+    {
+        key: "avgSpendCafe",
+        label: "☕ Café",
+        align: "right",
+        sortValue: (r) => r.avgSpendCafe,
+        render: (r) => <span className="tabular-nums text-olive">{formatCurrency(r.avgSpendCafe)}</span>,
+        group: "Avg Breakdown",
+    },
+    {
+        key: "avgSpendRetail",
+        label: "🛍 Retail",
+        align: "right",
+        sortValue: (r) => r.avgSpendRetail,
+        render: (r) => <span className="tabular-nums text-[#B07242]">{formatCurrency(r.avgSpendRetail)}</span>,
+        group: "Avg Breakdown",
+    },
+    // ── Last 30d Avg group (expandable → Café 30d, Retail 30d) ──
     {
         key: "last30AvgSpend",
         label: "30d Avg",
@@ -148,24 +154,36 @@ const MEMBER_COLUMNS: ColumnDef<MemberRow>[] = [
             if (r.last30Visits === 0) {
                 return <span className="text-muted-foreground italic text-xs">No visits</span>;
             }
-            return (
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <span className="tabular-nums text-foreground cursor-help border-b border-dotted border-muted-foreground/40">
-                            {formatCurrency(r.last30AvgSpend)}
-                        </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">
-                        <div className="flex flex-col gap-0.5">
-                            <span>☕ Cafe: {formatCurrency(r.last30CafeSpent)}</span>
-                            <span>🛍️ Retail: {formatCurrency(r.last30RetailSpent)}</span>
-                            <span className="text-muted-foreground mt-0.5">{r.last30Visits} visit{r.last30Visits !== 1 ? 's' : ''} in 30d</span>
-                        </div>
-                    </TooltipContent>
-                </Tooltip>
-            );
+            return <span className="tabular-nums font-medium text-foreground">{formatCurrency(r.last30AvgSpend)}</span>;
         },
+        group: "30d Breakdown",
+        groupParent: true,
     },
+    {
+        key: "last30CafeSpent",
+        label: "☕ 30d",
+        align: "right",
+        sortValue: (r) => r.last30CafeSpent,
+        render: (r) => <span className="tabular-nums text-olive">{formatCurrency(r.last30CafeSpent)}</span>,
+        group: "30d Breakdown",
+    },
+    {
+        key: "last30RetailSpent",
+        label: "🛍 30d",
+        align: "right",
+        sortValue: (r) => r.last30RetailSpent,
+        render: (r) => <span className="tabular-nums text-[#B07242]">{formatCurrency(r.last30RetailSpent)}</span>,
+        group: "30d Breakdown",
+    },
+    {
+        key: "last30Visits",
+        label: "30d Visits",
+        align: "right",
+        sortValue: (r) => r.last30Visits,
+        render: (r) => <span className="tabular-nums text-text-body">{r.last30Visits}</span>,
+        group: "30d Breakdown",
+    },
+    // ── Spending trend alert ──
     {
         key: "spendDropPct",
         label: "Trend",
@@ -175,44 +193,23 @@ const MEMBER_COLUMNS: ColumnDef<MemberRow>[] = [
             const drop = r.spendDropPct;
             if (r.last30Visits === 0) {
                 return (
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <span className="inline-flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-600 cursor-help">
-                                ⚠️ Inactive
-                            </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs max-w-[200px]">
-                            No visits in the last 30 days. Previously averaged {formatCurrency(r.avgSpend)}/visit.
-                        </TooltipContent>
-                    </Tooltip>
+                    <span className="inline-flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-600">
+                        ⚠️ Inactive
+                    </span>
                 );
             }
             if (drop >= 50) {
                 return (
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <span className="inline-flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-600 cursor-help animate-pulse">
-                                🔻 {drop.toFixed(0)}%
-                            </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs max-w-[220px]">
-                            Spending dropped {drop.toFixed(0)}% in 30d. Was {formatCurrency(r.avgSpend)}, now {formatCurrency(r.last30AvgSpend)}.
-                        </TooltipContent>
-                    </Tooltip>
+                    <span className="inline-flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-600 animate-pulse">
+                        🔻 {drop.toFixed(0)}%
+                    </span>
                 );
             }
             if (drop >= 25) {
                 return (
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <span className="inline-flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 cursor-help">
-                                📉 {drop.toFixed(0)}%
-                            </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs max-w-[220px]">
-                            Spending slowed by {drop.toFixed(0)}% in 30d. Was {formatCurrency(r.avgSpend)}, now {formatCurrency(r.last30AvgSpend)}.
-                        </TooltipContent>
-                    </Tooltip>
+                    <span className="inline-flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
+                        📉 {drop.toFixed(0)}%
+                    </span>
                 );
             }
             if (drop < 0) {

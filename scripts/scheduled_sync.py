@@ -97,6 +97,31 @@ def main():
         print(f"  Phase 3 FAILED: {e}")
         results["intelligence"] = {"status": "error", "error": str(e)}
 
+    # Phase 4: Refresh Member Spending Patterns (materialized view)
+    print("\n--- PHASE 4: Refresh Member Spending Patterns ---")
+    t0 = time.time()
+    try:
+        SUPA_URL = os.getenv("SUPABASE_URL")
+        SUPA_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        if SUPA_URL and SUPA_KEY:
+            import json, urllib.request
+            url = f"{SUPA_URL}/rest/v1/rpc/refresh_member_spending_patterns"
+            headers = {
+                "apikey": SUPA_KEY,
+                "Authorization": f"Bearer {SUPA_KEY}",
+                "Content-Type": "application/json",
+            }
+            req = urllib.request.Request(url, data=b"{}", headers=headers, method="POST")
+            urllib.request.urlopen(req, timeout=60)
+            results["spending_patterns"] = {"status": "success"}
+            print(f"  Phase 4 completed in {time.time() - t0:.1f}s")
+        else:
+            results["spending_patterns"] = {"status": "skipped", "reason": "no credentials"}
+            print("  Phase 4 SKIPPED (no Supabase credentials)")
+    except Exception as e:
+        print(f"  Phase 4 FAILED: {e}")
+        results["spending_patterns"] = {"status": "error", "error": str(e)}
+
     # Summary
     completed = datetime.now(SYDNEY_TZ)
     results["completed_at"] = completed.isoformat()
