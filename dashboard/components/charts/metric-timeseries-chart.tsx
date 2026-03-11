@@ -12,6 +12,7 @@ import {
     ResponsiveContainer,
     Legend,
     ComposedChart,
+    ReferenceArea,
 } from "recharts";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/format";
 import type { DailyStats, CategoryDailyData, DailyLabour } from "@/lib/queries/overview";
@@ -421,6 +422,22 @@ export function MetricTimeSeriesChart({
                                 <stop offset="100%" stopColor={def.compColor} stopOpacity={0.02} />
                             </linearGradient>
                         </defs>
+                        {/* Weekend shading */}
+                        {mergedData.map((d: Record<string, unknown>, i: number) => {
+                            const dateStr = d.date as string;
+                            const day = new Date(dateStr).getDay();
+                            if (day !== 0 && day !== 6) return null;
+                            return (
+                                <ReferenceArea
+                                    key={`wknd-${i}`}
+                                    x1={d.label as string}
+                                    x2={d.label as string}
+                                    fill="#E8D5C4"
+                                    fillOpacity={0.18}
+                                    stroke="none"
+                                />
+                            );
+                        })}
                         <CartesianGrid strokeDasharray="3 3" stroke="#F0F0EE" vertical={false} />
                         <XAxis
                             dataKey="label"

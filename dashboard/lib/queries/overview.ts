@@ -167,8 +167,9 @@ export async function fetchLabourCostBySide(
     let retail = 0;
     for (const s of data || []) {
         const cost = Number(s.labour_cost) || 0;
-        if (s.business_side === "Cafe") cafe += cost;
-        else retail += cost;
+        // business_side values: "Bar" (cafe), "Retail", "Overhead" (treated as cafe)
+        if (s.business_side === "Retail") retail += cost;
+        else cafe += cost; // "Bar" + "Overhead" = cafe side
     }
     return { cafe, retail };
 }

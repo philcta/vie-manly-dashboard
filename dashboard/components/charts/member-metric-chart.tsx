@@ -12,6 +12,7 @@ import {
     ResponsiveContainer,
     Legend,
     ComposedChart,
+    ReferenceArea,
 } from "recharts";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/format";
 
@@ -385,6 +386,21 @@ export function MemberMetricChart({ data, compData, historicalData }: MemberMetr
                                 <stop offset="100%" stopColor={def.compColor} stopOpacity={0.02} />
                             </linearGradient>
                         </defs>
+                        {/* Weekend shading */}
+                        {mergedData.map((d, i) => {
+                            const day = new Date(d.date).getDay();
+                            if (day !== 0 && day !== 6) return null;
+                            return (
+                                <ReferenceArea
+                                    key={`wknd-${i}`}
+                                    x1={d.label}
+                                    x2={d.label}
+                                    fill="#E8D5C4"
+                                    fillOpacity={0.18}
+                                    stroke="none"
+                                />
+                            );
+                        })}
                         <CartesianGrid strokeDasharray="3 3" stroke="#F0F0EE" vertical={false} />
                         <XAxis dataKey="label" tick={{ fill: "#8A8A8A", fontSize: 11 }} axisLine={{ stroke: "#EAEAE8" }} tickLine={false} />
                         <YAxis tick={{ fill: "#8A8A8A", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={def.yFormatter} />
