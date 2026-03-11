@@ -162,7 +162,7 @@ function AlertCard({ icon, label, count, color, onClick, active }: {
 export default function InventoryPage() {
     const [loading, setLoading] = useState(true);
     const [items, setItems] = useState<InventoryItem[]>([]);
-    const [saleFilter, setSaleFilter] = useState<"all" | "6mo" | "3mo" | "1mo">("1mo");
+
     const [categoryFilter, setCategoryFilter] = useState<Set<string>>(new Set());
     const [vendorFilter, setVendorFilter] = useState<Set<string>>(new Set());
     const [alertFilter, setAlertFilter] = useState<string | null>(null);
@@ -504,16 +504,7 @@ export default function InventoryPage() {
             filtered = filtered.filter(i => i.reorderAlert === alertFilter);
         }
 
-        // Sale recency filter — use lastSoldDate (from intelligence) as fallback
-        // when lastSaleDate (from inventory table) is null
-        if (saleFilter !== "all") {
-            const days = saleFilter === "6mo" ? 180 : saleFilter === "3mo" ? 90 : 30;
-            const cutoff = new Date(Date.now() - days * 86400000).toISOString().split("T")[0];
-            filtered = filtered.filter(i => {
-                const saleDate = i.lastSaleDate || i.lastSoldDate;
-                return saleDate && saleDate >= cutoff;
-            });
-        }
+
 
         // Category filter
         if (categoryFilter.size > 0) {
@@ -623,33 +614,12 @@ export default function InventoryPage() {
                                 onChange={setVendorFilter}
                             />
 
-                            {/* Divider */}
-                            <div className="w-px h-5 bg-border mx-1" />
 
-                            {/* Sale recency pills */}
-                            {(["all", "6mo", "3mo", "1mo"] as const).map((f) => {
-                                const label = f === "all" ? "All"
-                                    : f === "6mo" ? "6 months"
-                                        : f === "3mo" ? "3 months"
-                                            : "Last month";
-                                return (
-                                    <button
-                                        key={f}
-                                        onClick={() => setSaleFilter(f)}
-                                        className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors cursor-pointer ${saleFilter === f
-                                            ? "bg-olive text-white"
-                                            : "bg-muted text-muted-foreground hover:text-foreground"
-                                            }`}
-                                    >
-                                        {label}
-                                    </button>
-                                );
-                            })}
 
                             {/* Clear filters */}
-                            {(categoryFilter.size > 0 || vendorFilter.size > 0 || saleFilter !== "1mo" || alertFilter) && (
+                            {(categoryFilter.size > 0 || vendorFilter.size > 0 || alertFilter) && (
                                 <button
-                                    onClick={() => { setCategoryFilter(new Set()); setVendorFilter(new Set()); setSaleFilter("1mo"); setAlertFilter(null); }}
+                                    onClick={() => { setCategoryFilter(new Set()); setVendorFilter(new Set()); setAlertFilter(null); }}
                                     className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                                 >
                                     <X size={12} />

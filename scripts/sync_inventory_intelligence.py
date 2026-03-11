@@ -95,7 +95,8 @@ def fetch_all_inventory_changes(client, location_id, days_back=90):
     print(f"    {sold_count} SOLD adjustments in {time.time()-t0:.1f}s")
     total += sold_count
 
-    # Fetch RECEIVED (IN_STOCK from NONE) adjustments
+    # Fetch stock-increase adjustments: ANY positive adjustment into IN_STOCK
+    # (not just from_state == "NONE" — that only catches first-time stock adds)
     print(f"  Fetching stock receipt adjustments (last {days_back}d)...")
     t0 = time.time()
     recv_count = 0
@@ -103,9 +104,13 @@ def fetch_all_inventory_changes(client, location_id, days_back=90):
         location_ids=[location_id],
         updated_after=cutoff,
         types=["ADJUSTMENT"],
+        states=["IN_STOCK"],
     ):
         adj = change.adjustment
-        if adj and adj.to_state == "IN_STOCK" and adj.from_state in ("NONE", None, ""):
+        if adj and adj.to_state == "IN_STOCK" and float(adj.quantity or 0) > 0:
+            # Skip SOLD adjustments (from_state IN_STOCK → to_state SOLD are handled above)
+            if adj.from_state == "SOLD":
+                continue
             changes_by_var[adj.catalog_object_id].append({
                 "type": "RECEIVED",
                 "quantity": float(adj.quantity or 0),
@@ -114,6 +119,26 @@ def fetch_all_inventory_changes(client, location_id, days_back=90):
             recv_count += 1
     print(f"    {recv_count} receipt adjustments in {time.time()-t0:.1f}s")
     total += recv_count
+
+    # Fetch PHYSICAL_COUNT changes (stock reconciliations — often used to "receive" stock)
+    print(f"  Fetching physical counts (last {days_back}d)...")
+    t0 = time.time()
+    count_count = 0
+    for change in client.inventory.batch_get_changes(
+        location_ids=[location_id],
+        updated_after=cutoff,
+        types=["PHYSICAL_COUNT"],
+    ):
+        pc = change.physical_count
+        if pc and float(pc.quantity or 0) > 0:
+            changes_by_var[pc.catalog_object_id].append({
+                "type": "PHYSICAL_COUNT",
+                "quantity": float(pc.quantity or 0),
+                "occurred_at": pc.occurred_at,
+            })
+            count_count += 1
+    print(f"    {count_count} physical counts in {time.time()-t0:.1f}s")
+    total += count_count
 
     print(f"  Total: {total} changes across {len(changes_by_var)} items")
     return changes_by_var
@@ -184,9 +209,9 @@ def compute_intelligence(changes_by_var, catalog_map, counts_map):
         changes = changes_by_var.get(var_id, [])
         current_qty = counts_map.get(var_id, 0)
         
-        # Separate sales and receipts
+        # Separate sales and receipts (include PHYSICAL_COUNT as a form of stock receipt)
         sales = [c for c in changes if c["type"] == "SOLD"]
-        receipts = [c for c in changes if c["type"] == "RECEIVED"]
+        receipts = [c for c in changes if c["type"] in ("RECEIVED", "PHYSICAL_COUNT")]
         
         # Sales metrics
         last_sold = max((s["occurred_at"] for s in sales), default=None)
@@ -195,10 +220,13 @@ def compute_intelligence(changes_by_var, catalog_map, counts_map):
         units_sold_90d = sum(s["quantity"] for s in sales if s["occurred_at"] >= cutoff_90d)
         revenue_30d = sum(s["total_price"] for s in sales if s["occurred_at"] >= cutoff_30d)
         
-        # Receiving metrics
+        # Receiving metrics — only count actual RECEIVED adjustments for quantity
+        # (PHYSICAL_COUNT is absolute, not incremental, so don't sum as received qty)
+        actual_receipts = [c for c in changes if c["type"] == "RECEIVED"]
+        # last_received uses ALL receipt-like events (RECEIVED + PHYSICAL_COUNT)
         last_received = max((r["occurred_at"] for r in receipts), default=None)
-        units_received_30d = sum(r["quantity"] for r in receipts if r["occurred_at"] >= cutoff_30d)
-        units_received_90d = sum(r["quantity"] for r in receipts if r["occurred_at"] >= cutoff_90d)
+        units_received_30d = sum(r["quantity"] for r in actual_receipts if r["occurred_at"] >= cutoff_30d)
+        units_received_90d = sum(r["quantity"] for r in actual_receipts if r["occurred_at"] >= cutoff_90d)
         
         # Sales velocity (units per month, based on 30-day window)
         sales_velocity = units_sold_30d  # already 30-day sum = monthly rate
