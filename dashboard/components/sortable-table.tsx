@@ -33,6 +33,8 @@ interface SortableTableProps<T> {
     searchKeys?: string[];
     /** Placeholder text for the search input */
     searchPlaceholder?: string;
+    /** Optional: extra action buttons rendered in the header row */
+    headerActions?: React.ReactNode;
 }
 
 // ── Component ───────────────────────────────────────────────────
@@ -46,6 +48,7 @@ export function SortableTable<T extends Record<string, unknown>>({
     showCount = true,
     searchKeys,
     searchPlaceholder = "Search…",
+    headerActions,
 }: SortableTableProps<T>) {
     const [sortKey, setSortKey] = useState(defaultSortKey || columns[0]?.key || "");
     const [sortDir, setSortDir] = useState<"asc" | "desc">(defaultSortDir);
@@ -163,6 +166,7 @@ export function SortableTable<T extends Record<string, unknown>>({
                                 : `${filteredData.length} of ${data.length}`}
                         </span>
                     )}
+                    {headerActions}
                 </div>
                 <div className="flex items-center gap-2">
                     {/* Group expand/collapse toggles */}
@@ -175,8 +179,8 @@ export function SortableTable<T extends Record<string, unknown>>({
                                         key={groupName}
                                         onClick={() => toggleGroup(groupName)}
                                         className={`flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-all duration-200 cursor-pointer ${isExpanded
-                                                ? "bg-olive/10 text-olive"
-                                                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                                            ? "bg-olive/10 text-olive"
+                                            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                                             }`}
                                         title={isExpanded ? `Collapse ${groupName}` : `Expand ${groupName}`}
                                     >

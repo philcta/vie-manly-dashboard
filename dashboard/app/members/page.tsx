@@ -7,6 +7,7 @@ import PeriodSelector from "@/components/period-selector";
 import { MemberMetricChart, type MemberDailyRow } from "@/components/charts/member-metric-chart";
 import { SortableTable, type ColumnDef } from "@/components/sortable-table";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { Download } from "lucide-react";
 import {
     fetchMembers,
     fetchMemberLoyalty,
@@ -74,6 +75,59 @@ function StatusBadge({ status }: { status: string }) {
             {status}
         </span>
     );
+}
+
+// ── CSV export helper ───────────────────────────────────────────
+
+function exportMembersCSV(members: MemberRow[]) {
+    const headers = [
+        "Name", "Phone", "Total Spent", "Visits",
+        "Avg Spend", "Avg Spend Cafe", "Avg Spend Retail",
+        "30d Avg Spend", "30d Avg Cafe", "30d Avg Retail", "30d Visits",
+        "Trend %", "Total Points", "Points Redeemed", "Points Available",
+        "Days Since Last Visit", "Status",
+    ];
+
+    const rows = members.map((m) => [
+        m.name,
+        m.phone || "",
+        m.totalSpent.toFixed(2),
+        m.visits,
+        m.avgSpend.toFixed(2),
+        m.avgSpendCafe.toFixed(2),
+        m.avgSpendRetail.toFixed(2),
+        m.last30AvgSpend.toFixed(2),
+        m.last30CafeAvg.toFixed(2),
+        m.last30RetailAvg.toFixed(2),
+        m.last30Visits,
+        m.spendDropPct.toFixed(1),
+        m.lifetimePoints,
+        m.pointsRedeemed,
+        m.points,
+        m.daysSinceLastVisit >= 999 ? "Never" : m.daysSinceLastVisit,
+        m.status,
+    ]);
+
+    const csvContent = [
+        headers.join(","),
+        ...rows.map((row) =>
+            row.map((val) => {
+                const str = String(val);
+                // Wrap in quotes if contains comma, newline, or quote
+                return str.includes(",") || str.includes('"') || str.includes("\n")
+                    ? `"${str.replace(/"/g, '""')}"`
+                    : str;
+            }).join(",")
+        ),
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `members_export_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
 }
 
 // ── Table column definitions ────────────────────────────────────
@@ -615,11 +669,7 @@ export default function MembersPage() {
                             title="Members List"
                             columns={MEMBER_COLUMNS}
                             data={allMembers.filter((m) => {
-                                // Hide unnamed members if toggled
                                 if (hideUnknown && m.name === "Unknown") return false;
-                                // Exclusive activity filters:
-                                // "no_1m" = 30–89 days (visited within 3mo but not within 1mo)
-                                // "no_3m" = 90+ days (haven't been back in 3+ months)
                                 if (activityFilter === "no_1m" && (m.daysSinceLastVisit < 30 || m.daysSinceLastVisit >= 90)) return false;
                                 if (activityFilter === "no_3m" && m.daysSinceLastVisit < 90) return false;
                                 return true;
@@ -628,6 +678,25 @@ export default function MembersPage() {
                             defaultSortDir="desc"
                             searchKeys={["name", "phone"]}
                             searchPlaceholder="Search by name or phone…"
+                            headerActions={
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <button
+                                            onClick={() => exportMembersCSV(allMembers.filter((m) => {
+                                                if (hideUnknown && m.name === "Unknown") return false;
+                                                if (activityFilter === "no_1m" && (m.daysSinceLastVisit < 30 || m.daysSinceLastVisit >= 90)) return false;
+                                                if (activityFilter === "no_3m" && m.daysSinceLastVisit < 90) return false;
+                                                return true;
+                                            }))}
+                                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                                        >
+                                            <Download size={13} />
+                                            CSV
+                                        </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" sideOffset={6}>Export current list as CSV</TooltipContent>
+                                </Tooltip>
+                            }
                         />
                     </section>
 

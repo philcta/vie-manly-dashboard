@@ -12,6 +12,7 @@ interface RateRow {
     sunday: number;
     publicHoliday: number;
     isActive: boolean;
+    isTeen: boolean;
 }
 
 interface RawRate {
@@ -22,6 +23,7 @@ interface RawRate {
     day_type: string;
     hourly_rate: number;
     is_active: boolean;
+    is_teen: boolean;
 }
 
 /** Short label for common job titles */
@@ -66,6 +68,7 @@ export default function StaffRatesEditor() {
             sunday: number;
             publicHoliday: number;
             isActive: boolean;
+            isTeen: boolean;
         }>();
 
         for (const r of raw) {
@@ -81,6 +84,7 @@ export default function StaffRatesEditor() {
                     sunday: 0,
                     publicHoliday: 0,
                     isActive: r.is_active !== false,
+                    isTeen: r.is_teen === true,
                 });
             }
             const entry = map.get(key)!;
@@ -112,6 +116,7 @@ export default function StaffRatesEditor() {
             sunday: e.sunday,
             publicHoliday: e.publicHoliday,
             isActive: e.isActive,
+            isTeen: e.isTeen,
         }));
 
         setRows(pivoted.sort((a, b) => a.staffName.localeCompare(b.staffName)));
@@ -178,6 +183,7 @@ export default function StaffRatesEditor() {
             day_type: string;
             hourly_rate: number;
             is_active: boolean;
+            is_teen: boolean;
         }[] = [];
 
         for (const row of rows) {
@@ -200,6 +206,7 @@ export default function StaffRatesEditor() {
                         day_type: dr.day_type,
                         hourly_rate: dr.hourly_rate,
                         is_active: row.isActive,
+                        is_teen: row.isTeen,
                     });
                 }
             }
@@ -261,8 +268,8 @@ export default function StaffRatesEditor() {
                             key={pill.value}
                             onClick={() => setFilter(pill.value)}
                             className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors cursor-pointer ${filter === pill.value
-                                    ? "bg-olive text-white"
-                                    : "bg-olive-surface text-text-body hover:bg-olive/10"
+                                ? "bg-olive text-white"
+                                : "bg-olive-surface text-text-body hover:bg-olive/10"
                                 }`}
                         >
                             {pill.label}
@@ -277,8 +284,8 @@ export default function StaffRatesEditor() {
                         onClick={saveRates}
                         disabled={!dirty || saving}
                         className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors duration-200 cursor-pointer ${dirty
-                                ? "bg-olive text-white hover:bg-olive-dark"
-                                : "bg-muted text-muted-foreground cursor-not-allowed"
+                            ? "bg-olive text-white hover:bg-olive-dark"
+                            : "bg-muted text-muted-foreground cursor-not-allowed"
                             }`}
                     >
                         {saving ? "Saving..." : "Save Rates"}
@@ -293,6 +300,7 @@ export default function StaffRatesEditor() {
                         <thead className="sticky top-0 z-10">
                             <tr className="bg-[#FAFAF8] text-xs font-medium uppercase tracking-wider text-muted-foreground">
                                 <th className="text-left px-4 py-2.5">Name</th>
+                                <th className="text-center px-2 py-2.5 w-14">Teen</th>
                                 <th className="text-left px-4 py-2.5">Role</th>
                                 <th className="text-center px-2 py-2.5 w-32">Status</th>
                                 <th className="text-right px-2 py-2.5 w-24">Weekday</th>
@@ -306,14 +314,25 @@ export default function StaffRatesEditor() {
                                 <tr
                                     key={row.staffName}
                                     className={`border-t border-border transition-colors ${!row.isActive
-                                            ? "opacity-50 bg-[#FAFAF8]/50"
-                                            : i % 2 === 0
-                                                ? "bg-white"
-                                                : "bg-[#FAFAF8]/50"
+                                        ? "opacity-50 bg-[#FAFAF8]/50"
+                                        : i % 2 === 0
+                                            ? "bg-white"
+                                            : "bg-[#FAFAF8]/50"
                                         } hover:bg-olive-surface/30`}
                                 >
                                     <td className="px-4 py-2 font-medium text-foreground whitespace-nowrap">
                                         {row.staffName}
+                                    </td>
+                                    <td className="px-2 py-2 text-center">
+                                        <input
+                                            type="checkbox"
+                                            checked={row.isTeen}
+                                            onChange={() => {
+                                                const idx = rows.findIndex((r) => r.staffName === row.staffName);
+                                                if (idx >= 0) updateRate(idx, "isTeen", !row.isTeen);
+                                            }}
+                                            className="h-4 w-4 rounded border-border accent-olive cursor-pointer"
+                                        />
                                     </td>
                                     <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
                                         {row.jobTitle}
@@ -327,8 +346,8 @@ export default function StaffRatesEditor() {
                                                         if (idx >= 0 && !row.isActive) toggleActive(idx);
                                                     }}
                                                     className={`px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${row.isActive
-                                                            ? "bg-olive text-white"
-                                                            : "text-text-body hover:bg-olive-surface"
+                                                        ? "bg-olive text-white"
+                                                        : "text-text-body hover:bg-olive-surface"
                                                         }`}
                                                 >
                                                     Active
@@ -339,8 +358,8 @@ export default function StaffRatesEditor() {
                                                         if (idx >= 0 && row.isActive) toggleActive(idx);
                                                     }}
                                                     className={`px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${!row.isActive
-                                                            ? "bg-coral text-white"
-                                                            : "text-text-body hover:bg-olive-surface"
+                                                        ? "bg-coral text-white"
+                                                        : "text-text-body hover:bg-olive-surface"
                                                         }`}
                                                 >
                                                     Inactive
@@ -404,7 +423,7 @@ export default function StaffRatesEditor() {
                             ))}
                             {filtered.length === 0 && (
                                 <tr>
-                                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground text-sm">
+                                    <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground text-sm">
                                         No staff match this filter.
                                     </td>
                                 </tr>
