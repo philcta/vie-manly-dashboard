@@ -2,19 +2,18 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { motion } from "framer-motion";
-import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Download } from "lucide-react";
 import KpiCard from "@/components/kpi-card";
 import PeriodSelector from "@/components/period-selector";
-import StaffRatesEditor from "@/components/staff-rates-editor";
 import {
     type StaffShift,
+    type StaffEarningsRow,
     fetchStaffShifts,
     fetchStaffRates,
     aggregateStaffKPIs,
     pivotRates,
     getPayPeriod,
-    fetchBiweeklyEarnings,
-    fetchBreakStats,
+    fetchEarningsBreakdown,
 } from "@/lib/queries/staff";
 import { fetchDailyStats, aggregateStats } from "@/lib/queries/overview";
 import {
@@ -38,6 +37,7 @@ import {
     Tooltip as RechartsTooltip,
     ResponsiveContainer,
     Legend,
+    ReferenceArea,
 } from "recharts";
 
 // ── Labour split segment keys ──
@@ -50,6 +50,34 @@ const SEGMENTS: { key: SegmentKey; label: string; color: string; emoji: string }
     { key: "teenRetail", label: "Teen Retail", color: "#F2CC8F", emoji: "🛍" },
 ];
 
+// ── CSV export helper ──
+function exportEarningsCSV(rows: StaffEarningsRow[], periodLabel: string) {
+    const header = ["Name", "Role", "Total Earnings", "Weekday $", "Weekday Hours", "Saturday $", "Saturday Hours", "Sunday $", "Sunday Hours", "Pub Holiday $", "Pub Holiday Hours", "Total Hours", "Breaks"];
+    const csvRows = rows.map((r) => [
+        `"${r.name}"`,
+        `"${r.jobTitle}"`,
+        r.total.toFixed(2),
+        r.weekday.toFixed(2),
+        r.weekdayHours.toFixed(1),
+        r.saturday.toFixed(2),
+        r.saturdayHours.toFixed(1),
+        r.sunday.toFixed(2),
+        r.sundayHours.toFixed(1),
+        r.publicHoliday.toFixed(2),
+        r.publicHolidayHours.toFixed(1),
+        r.totalHours.toFixed(1),
+        r.breaks.toString(),
+    ]);
+    const csv = [header.join(","), ...csvRows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `staff-earnings-${periodLabel}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
 export default function StaffPage() {
     const [period, setPeriod] = useState<PeriodType>("this_month");
     const [comparison, setComparison] = useState<ComparisonType>("prior_period");
@@ -60,13 +88,10 @@ export default function StaffPage() {
     const [compShifts, setCompShifts] = useState<StaffShift[]>([]);
     const [netSales, setNetSales] = useState(0);
     const [compNetSales, setCompNetSales] = useState(0);
-    const [ratesTable, setRatesTable] = useState<ReturnType<typeof pivotRates>>([]);
-    const [ratesFilter, setRatesFilter] = useState<"all" | "active" | "inactive">("active");
-    const [earningsMap, setEarningsMap] = useState<Map<string, number>>(new Map());
-    const [breakMap, setBreakMap] = useState<Map<string, number>>(new Map());
+    const [earningsData, setEarningsData] = useState<StaffEarningsRow[]>([]);
     const [payPeriod, setPayPeriod] = useState(getPayPeriod());
-    const [sortCol, setSortCol] = useState<"name" | "role" | "earnings" | "weekday" | "saturday" | "sunday" | "publicHoliday" | "breaks">("name");
-    const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+    const [sortCol, setSortCol] = useState<"name" | "role" | "total" | "weekday" | "saturday" | "sunday" | "publicHoliday" | "hours" | "breaks">("total");
+    const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
     // ── Chart filter: which series are visible ──
     const [activeSegments, setActiveSegments] = useState<Set<SegmentKey>>(
@@ -102,15 +127,13 @@ export default function StaffPage() {
             const compRange = resolveComparisonRange(currentRange, comparison, period);
             const pp = getPayPeriod();
 
-            const [currentShifts, compShiftData, dailyStats, compDailyStats, rates, earnings, breaks] =
+            const [currentShifts, compShiftData, dailyStats, compDailyStats, earningsBreakdown] =
                 await Promise.all([
                     fetchStaffShifts(currentRange.startDate, currentRange.endDate),
                     fetchStaffShifts(compRange.startDate, compRange.endDate),
                     fetchDailyStats(currentRange.startDate, currentRange.endDate),
                     fetchDailyStats(compRange.startDate, compRange.endDate),
-                    fetchStaffRates(),
-                    fetchBiweeklyEarnings(pp.periodStart, pp.periodEnd),
-                    fetchBreakStats(pp.periodStart, pp.periodEnd),
+                    fetchEarningsBreakdown(pp.periodStart, pp.periodEnd),
                 ]);
 
             setShifts(currentShifts);
@@ -120,9 +143,7 @@ export default function StaffPage() {
             const compStats = aggregateStats(compDailyStats);
             setNetSales(stats.netSales);
             setCompNetSales(compStats.netSales);
-            setRatesTable(pivotRates(rates));
-            setEarningsMap(earnings);
-            setBreakMap(breaks);
+            setEarningsData(earningsBreakdown);
             setPayPeriod(pp);
         } catch (err) {
             console.error("Failed to load staff data:", err);
@@ -157,8 +178,10 @@ export default function StaffPage() {
             .sort((a, b) => a.date.localeCompare(b.date))
             .map((d) => {
                 const total = d.adultCafe + d.adultRetail + d.teenCafe + d.teenRetail;
+                const dow = new Date(d.date + "T00:00:00").getDay();
                 return {
                     label: new Date(d.date + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short" }),
+                    isWeekend: dow === 0 || dow === 6,
                     adultCafe: total > 0 ? +((d.adultCafe / total) * 100).toFixed(1) : 0,
                     adultRetail: total > 0 ? +((d.adultRetail / total) * 100).toFixed(1) : 0,
                     teenCafe: total > 0 ? +((d.teenCafe / total) * 100).toFixed(1) : 0,
@@ -179,6 +202,69 @@ export default function StaffPage() {
 
     // ── Tooltip state for right chart bars ──
     const [hoveredBar, setHoveredBar] = useState<string | null>(null);
+
+    // ── Sort earnings data ──
+    const sortedEarnings = useMemo(() => {
+        return [...earningsData].sort((a, b) => {
+            const dir = sortDir === "asc" ? 1 : -1;
+            const valA = (() => {
+                switch (sortCol) {
+                    case "name": return a.name.toLowerCase();
+                    case "role": return a.jobTitle.toLowerCase();
+                    case "total": return a.total;
+                    case "weekday": return a.weekday;
+                    case "saturday": return a.saturday;
+                    case "sunday": return a.sunday;
+                    case "publicHoliday": return a.publicHoliday;
+                    case "hours": return a.totalHours;
+                    case "breaks": return a.breaks;
+                    default: return a.total;
+                }
+            })();
+            const valB = (() => {
+                switch (sortCol) {
+                    case "name": return b.name.toLowerCase();
+                    case "role": return b.jobTitle.toLowerCase();
+                    case "total": return b.total;
+                    case "weekday": return b.weekday;
+                    case "saturday": return b.saturday;
+                    case "sunday": return b.sunday;
+                    case "publicHoliday": return b.publicHoliday;
+                    case "hours": return b.totalHours;
+                    case "breaks": return b.breaks;
+                    default: return b.total;
+                }
+            })();
+            if (valA < valB) return -1 * dir;
+            if (valA > valB) return 1 * dir;
+            return 0;
+        });
+    }, [earningsData, sortCol, sortDir]);
+
+    const totalEarnings = earningsData.reduce((s, r) => s + r.total, 0);
+
+    const toggleSort = (col: typeof sortCol) => {
+        if (sortCol === col) {
+            setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+        } else {
+            setSortCol(col);
+            setSortDir(col === "name" || col === "role" ? "asc" : "desc");
+        }
+    };
+
+    const SortIcon = ({ col }: { col: typeof sortCol }) => (
+        sortCol === col ? (
+            sortDir === "asc" ? (
+                <ChevronUp className="w-3.5 h-3.5 text-olive" />
+            ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-olive" />
+            )
+        ) : (
+            <ChevronsUpDown className="w-3.5 h-3.5 opacity-30" />
+        )
+    );
+
+    const periodLabel = `${payPeriod.periodStart}_${payPeriod.periodEnd}`;
 
     return (
         <motion.div
@@ -256,7 +342,7 @@ export default function StaffPage() {
                         <div className="bg-card rounded-xl border border-border p-6" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-base font-semibold text-foreground">
-                                    Labour Cost %
+                                    Labour Split
                                 </h3>
                                 {/* Segment filter dropdown */}
                                 <div className="relative" ref={segDropdownRef}>
@@ -312,6 +398,19 @@ export default function StaffPage() {
                             </div>
                             <ResponsiveContainer width="100%" height={280}>
                                 <LineChart data={dailyLineData}>
+                                    {/* Weekend shading */}
+                                    {dailyLineData.map((d, i) =>
+                                        d.isWeekend ? (
+                                            <ReferenceArea
+                                                key={`wknd-${i}`}
+                                                x1={d.label}
+                                                x2={d.label}
+                                                fill="#6B7355"
+                                                fillOpacity={0.06}
+                                                stroke="none"
+                                            />
+                                        ) : null
+                                    )}
                                     <CartesianGrid strokeDasharray="3 3" stroke="#F0F0EE" vertical={false} />
                                     <XAxis
                                         dataKey="label"
@@ -375,7 +474,6 @@ export default function StaffPage() {
                                     const pct = totalCost4way > 0 ? (seg.cost / totalCost4way) * 100 : 0;
                                     const revPerHr = seg.hours > 0 ? netSales * (seg.hours / totalHours4way) / seg.hours : 0;
                                     const isHovered = hoveredBar === seg.segment;
-                                    // Dark bars (#6B7355, #81B29A) → white text; light bars (#E07A5F, #F2CC8F) → dark text
                                     const isDarkBar = seg.color === "#6B7355" || seg.color === "#81B29A";
                                     const barTextColor = isDarkBar ? "#FFFFFF" : "#1A1A1A";
 
@@ -400,7 +498,6 @@ export default function StaffPage() {
                                                 >
                                                     {pct.toFixed(1)}% · {seg.hours.toFixed(1)}h
                                                 </span>
-                                                {/* Tooltip on bar hover */}
                                                 {isHovered && (
                                                     <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 bg-foreground text-background rounded-lg px-4 py-2.5 text-xs whitespace-nowrap z-20 shadow-lg pointer-events-none">
                                                         <div className="font-semibold mb-1">{seg.segment}</div>
@@ -440,216 +537,169 @@ export default function StaffPage() {
                         </div>
                     </div>
 
-                    {/* Staff Rates Table with earnings + breaks */}
-                    {(() => {
-                        type SortKey = "name" | "role" | "earnings" | "weekday" | "saturday" | "sunday" | "publicHoliday" | "breaks";
-                        const activeRates = ratesTable.filter((r) => r.isActive);
-                        const inactiveRates = ratesTable.filter((r) => !r.isActive);
-                        const base =
-                            ratesFilter === "all"
-                                ? ratesTable
-                                : ratesFilter === "active"
-                                    ? activeRates
-                                    : inactiveRates;
-
-                        // Sort
-                        const sortedRates = [...base].sort((a, b) => {
-                            const dir = sortDir === "asc" ? 1 : -1;
-                            const valA = (() => {
-                                switch (sortCol) {
-                                    case "name": return a.name.toLowerCase();
-                                    case "role": return a.jobTitle.toLowerCase();
-                                    case "earnings": return earningsMap.get(a.name) || 0;
-                                    case "weekday": return a.weekday;
-                                    case "saturday": return a.saturday;
-                                    case "sunday": return a.sunday;
-                                    case "publicHoliday": return a.publicHoliday;
-                                    case "breaks": return breakMap.get(a.name) || 0;
-                                    default: return a.name.toLowerCase();
-                                }
-                            })();
-                            const valB = (() => {
-                                switch (sortCol) {
-                                    case "name": return b.name.toLowerCase();
-                                    case "role": return b.jobTitle.toLowerCase();
-                                    case "earnings": return earningsMap.get(b.name) || 0;
-                                    case "weekday": return b.weekday;
-                                    case "saturday": return b.saturday;
-                                    case "sunday": return b.sunday;
-                                    case "publicHoliday": return b.publicHoliday;
-                                    case "breaks": return breakMap.get(b.name) || 0;
-                                    default: return b.name.toLowerCase();
-                                }
-                            })();
-                            if (valA < valB) return -1 * dir;
-                            if (valA > valB) return 1 * dir;
-                            return 0;
-                        });
-
-                        const toggleSort = (col: SortKey) => {
-                            if (sortCol === col) {
-                                setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-                            } else {
-                                setSortCol(col);
-                                setSortDir(col === "name" || col === "role" ? "asc" : "desc");
-                            }
-                        };
-
-                        const SortIcon = ({ col }: { col: SortKey }) => (
-                            sortCol === col ? (
-                                sortDir === "asc" ? (
-                                    <ChevronUp className="w-3.5 h-3.5 text-olive" />
-                                ) : (
-                                    <ChevronDown className="w-3.5 h-3.5 text-olive" />
-                                )
-                            ) : (
-                                <ChevronsUpDown className="w-3.5 h-3.5 opacity-30" />
-                            )
-                        );
-
-                        // Sum earnings for the total row
-                        const totalEarnings = sortedRates.reduce((s, r) => s + (earningsMap.get(r.name) || 0), 0);
-
-                        return (
-                            <div className="bg-card rounded-xl border border-border overflow-hidden" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-                                <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
-                                        <h3 className="text-base font-semibold text-foreground">Staff Rates</h3>
-                                        <div className="flex items-center gap-2">
-                                            {([
-                                                { value: "all" as const, label: `All (${ratesTable.length})` },
-                                                { value: "active" as const, label: `Active (${activeRates.length})` },
-                                                { value: "inactive" as const, label: `Inactive (${inactiveRates.length})` },
-                                            ]).map((pill) => (
-                                                <button
-                                                    key={pill.value}
-                                                    onClick={() => setRatesFilter(pill.value)}
-                                                    className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors cursor-pointer ${ratesFilter === pill.value
-                                                        ? "bg-olive text-white"
-                                                        : "bg-olive-surface text-text-body hover:bg-olive/10"
-                                                        }`}
-                                                >
-                                                    {pill.label}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <span className="text-xs text-muted-foreground block">
-                                            Rates include 12% super (except under-18)
-                                        </span>
-                                        <span className="text-[10px] text-muted-foreground">
-                                            Earnings period: {new Date(payPeriod.periodStart + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short" })} – {new Date(payPeriod.periodEnd + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}
-                                            {" · "}Next update: {new Date(payPeriod.nextUpdate + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                {/* Total Earnings bar — OUTSIDE scroll area so it stays visible */}
-                                {totalEarnings > 0 && (
-                                    <div className="px-6 py-2.5 bg-olive-surface/40 border-b border-border flex items-center justify-between">
-                                        <span className="text-xs font-semibold text-olive">Total Earnings</span>
-                                        <span className="text-sm font-bold text-olive tabular-nums">{formatCurrency(totalEarnings)}</span>
-                                    </div>
-                                )}
-
-                                <div className="max-h-[480px] overflow-y-auto">
-                                    <table className="w-full text-sm table-fixed">
-                                        <colgroup>
-                                            <col style={{ width: "18%" }} />
-                                            <col style={{ width: "12%" }} />
-                                            <col style={{ width: "12%" }} />
-                                            <col style={{ width: "10%" }} />
-                                            <col style={{ width: "10%" }} />
-                                            <col style={{ width: "10%" }} />
-                                            <col style={{ width: "14%" }} />
-                                            <col style={{ width: "8%" }} />
-                                        </colgroup>
-                                        <thead className="sticky top-0 z-10">
-                                            <tr className="bg-[#FAFAF8]">
-                                                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-left" onClick={() => toggleSort("name")}>
-                                                    <span className="inline-flex items-center gap-1">Name<SortIcon col="name" /></span>
-                                                </th>
-                                                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-left" onClick={() => toggleSort("role")}>
-                                                    <span className="inline-flex items-center gap-1">Role<SortIcon col="role" /></span>
-                                                </th>
-                                                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("earnings")} title="Biweekly earnings excl. 12% super (for Xero payroll)">
-                                                    <span className="inline-flex items-center gap-1 float-right">Earnings<SortIcon col="earnings" /></span>
-                                                </th>
-                                                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("weekday")}>
-                                                    <span className="inline-flex items-center gap-1 float-right">Weekday<SortIcon col="weekday" /></span>
-                                                </th>
-                                                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("saturday")}>
-                                                    <span className="inline-flex items-center gap-1 float-right">Saturday<SortIcon col="saturday" /></span>
-                                                </th>
-                                                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("sunday")}>
-                                                    <span className="inline-flex items-center gap-1 float-right">Sunday<SortIcon col="sunday" /></span>
-                                                </th>
-                                                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("publicHoliday")}>
-                                                    <span className="inline-flex items-center gap-1 float-right">Pub. Holiday<SortIcon col="publicHoliday" /></span>
-                                                </th>
-                                                <th className="px-2 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-center" onClick={() => toggleSort("breaks")} title="Shifts with 30-min auto-break (>6h15)">
-                                                    <span className="inline-flex items-center justify-center gap-1">Breaks<SortIcon col="breaks" /></span>
-                                                </th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {sortedRates.map((r, i) => {
-                                                const earning = earningsMap.get(r.name) || 0;
-                                                const breaks = breakMap.get(r.name) || 0;
-                                                return (
-                                                    <tr
-                                                        key={r.name}
-                                                        className={`border-t border-border transition-colors ${!r.isActive
-                                                            ? "opacity-50 bg-[#FAFAF8]/50"
-                                                            : i % 2 === 0
-                                                                ? "bg-white"
-                                                                : "bg-[#FAFAF8]/50"
-                                                            } hover:bg-olive-surface/30`}
-                                                    >
-                                                        <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap">
-                                                            {r.name}
-                                                            {!r.isActive && (
-                                                                <span className="ml-2 text-[10px] font-semibold uppercase tracking-wider text-coral bg-coral/10 px-1.5 py-0.5 rounded-full">
-                                                                    Inactive
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{r.jobTitle}</td>
-                                                        <td className="px-4 py-3 text-right tabular-nums font-semibold text-foreground">
-                                                            {earning > 0 ? formatCurrency(earning) : (
-                                                                <span className="text-muted-foreground font-normal">—</span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.weekday)}</td>
-                                                        <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.saturday)}</td>
-                                                        <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.sunday)}</td>
-                                                        <td className="px-4 py-3 text-right tabular-nums text-foreground">{formatCurrency(r.publicHoliday)}</td>
-                                                        <td className="px-2 py-3 text-center">
-                                                            {breaks > 0 ? (
-                                                                <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
-                                                                    {breaks}
-                                                                </span>
-                                                            ) : (
-                                                                <span className="text-muted-foreground">—</span>
-                                                            )}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                            {sortedRates.length === 0 && (
-                                                <tr>
-                                                    <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground text-sm">
-                                                        No staff match this filter.
-                                                    </td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
+                    {/* Staff Earnings Table */}
+                    <div className="bg-card rounded-xl border border-border overflow-hidden" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+                        <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <h3 className="text-base font-semibold text-foreground">Staff Earnings</h3>
+                                <span className="text-xs text-muted-foreground bg-muted/50 px-2.5 py-1 rounded-full tabular-nums">
+                                    {earningsData.length} staff
+                                </span>
+                                <button
+                                    onClick={() => exportEarningsCSV(sortedEarnings, periodLabel)}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                                    title="Export current list as CSV"
+                                >
+                                    <Download size={13} />
+                                    CSV
+                                </button>
                             </div>
-                        );
-                    })()}
+                            <div className="text-right">
+                                <span className="text-xs text-muted-foreground block">
+                                    Earnings excl. 12% super (for Xero payroll)
+                                </span>
+                                <span className="text-[10px] text-muted-foreground">
+                                    Period: {new Date(payPeriod.periodStart + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short" })} – {new Date(payPeriod.periodEnd + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}
+                                    {" · "}Next update: {new Date(payPeriod.nextUpdate + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Total Earnings bar — always visible above scroll */}
+                        {totalEarnings > 0 && (
+                            <div className="px-6 py-2.5 bg-olive-surface/40 border-b border-border flex items-center justify-between">
+                                <span className="text-xs font-semibold text-olive">Total Payroll</span>
+                                <span className="text-sm font-bold text-olive tabular-nums">{formatCurrency(totalEarnings)}</span>
+                            </div>
+                        )}
+
+                        <div className="max-h-[480px] overflow-y-auto">
+                            <table className="w-full text-sm table-fixed">
+                                <colgroup>
+                                    <col style={{ width: "16%" }} />
+                                    <col style={{ width: "11%" }} />
+                                    <col style={{ width: "11%" }} />
+                                    <col style={{ width: "11%" }} />
+                                    <col style={{ width: "11%" }} />
+                                    <col style={{ width: "11%" }} />
+                                    <col style={{ width: "11%" }} />
+                                    <col style={{ width: "9%" }} />
+                                    <col style={{ width: "6%" }} />
+                                </colgroup>
+                                <thead className="sticky top-0 z-10">
+                                    <tr className="bg-[#FAFAF8]">
+                                        <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-left" onClick={() => toggleSort("name")}>
+                                            <span className="inline-flex items-center gap-1">Name<SortIcon col="name" /></span>
+                                        </th>
+                                        <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-left" onClick={() => toggleSort("role")}>
+                                            <span className="inline-flex items-center gap-1">Role<SortIcon col="role" /></span>
+                                        </th>
+                                        <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("total")}>
+                                            <span className="inline-flex items-center gap-1 float-right">Total<SortIcon col="total" /></span>
+                                        </th>
+                                        <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("weekday")}>
+                                            <span className="inline-flex items-center gap-1 float-right">Weekday<SortIcon col="weekday" /></span>
+                                        </th>
+                                        <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("saturday")}>
+                                            <span className="inline-flex items-center gap-1 float-right">Saturday<SortIcon col="saturday" /></span>
+                                        </th>
+                                        <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("sunday")}>
+                                            <span className="inline-flex items-center gap-1 float-right">Sunday<SortIcon col="sunday" /></span>
+                                        </th>
+                                        <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("publicHoliday")}>
+                                            <span className="inline-flex items-center gap-1 float-right">Pub Hol.<SortIcon col="publicHoliday" /></span>
+                                        </th>
+                                        <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("hours")}>
+                                            <span className="inline-flex items-center gap-1 float-right">Hours<SortIcon col="hours" /></span>
+                                        </th>
+                                        <th className="px-2 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-center" onClick={() => toggleSort("breaks")} title="Shifts with 30-min auto-break (>6h15)">
+                                            <span className="inline-flex items-center justify-center gap-1">Brk<SortIcon col="breaks" /></span>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {sortedEarnings.map((r, i) => (
+                                        <tr
+                                            key={r.name}
+                                            className={`border-t border-border transition-colors ${i % 2 === 0 ? "bg-white" : "bg-[#FAFAF8]/50"
+                                                } hover:bg-olive-surface/30`}
+                                        >
+                                            <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap truncate">
+                                                {r.name}
+                                            </td>
+                                            <td className="px-4 py-3 text-muted-foreground whitespace-nowrap truncate text-xs">{r.jobTitle}</td>
+                                            <td className="px-3 py-3 text-right tabular-nums font-semibold text-foreground">
+                                                {r.total > 0 ? formatCurrency(r.total) : (
+                                                    <span className="text-muted-foreground font-normal">$0</span>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-3 text-right tabular-nums text-foreground">
+                                                {r.weekday > 0 ? (
+                                                    <div>
+                                                        <div className="font-medium">{formatCurrency(r.weekday)}</div>
+                                                        <div className="text-[10px] text-muted-foreground">{r.weekdayHours.toFixed(1)}h</div>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-muted-foreground">$0</span>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-3 text-right tabular-nums text-foreground">
+                                                {r.saturday > 0 ? (
+                                                    <div>
+                                                        <div className="font-medium">{formatCurrency(r.saturday)}</div>
+                                                        <div className="text-[10px] text-muted-foreground">{r.saturdayHours.toFixed(1)}h</div>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-muted-foreground">$0</span>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-3 text-right tabular-nums text-foreground">
+                                                {r.sunday > 0 ? (
+                                                    <div>
+                                                        <div className="font-medium">{formatCurrency(r.sunday)}</div>
+                                                        <div className="text-[10px] text-muted-foreground">{r.sundayHours.toFixed(1)}h</div>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-muted-foreground">$0</span>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-3 text-right tabular-nums text-foreground">
+                                                {r.publicHoliday > 0 ? (
+                                                    <div>
+                                                        <div className="font-medium">{formatCurrency(r.publicHoliday)}</div>
+                                                        <div className="text-[10px] text-muted-foreground">{r.publicHolidayHours.toFixed(1)}h</div>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-muted-foreground">$0</span>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-3 text-right tabular-nums text-foreground font-medium">
+                                                {r.totalHours > 0 ? `${r.totalHours.toFixed(1)}h` : (
+                                                    <span className="text-muted-foreground font-normal">0</span>
+                                                )}
+                                            </td>
+                                            <td className="px-2 py-3 text-center">
+                                                {r.breaks > 0 ? (
+                                                    <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
+                                                        {r.breaks}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-muted-foreground">—</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {sortedEarnings.length === 0 && (
+                                        <tr>
+                                            <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground text-sm">
+                                                No earnings data for this pay period.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </>
             )}
         </motion.div>

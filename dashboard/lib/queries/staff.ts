@@ -327,3 +327,105 @@ export async function fetchBreakStats(
     }
     return breakMap;
 }
+
+// ── NSW Public Holidays (same as sync_shifts.py) ──
+const NSW_HOLIDAYS = new Set([
+    "2025-01-01", "2025-01-27", "2025-04-18", "2025-04-19",
+    "2025-04-21", "2025-04-25", "2025-06-09", "2025-08-04",
+    "2025-10-06", "2025-12-25", "2025-12-26",
+    "2026-01-01", "2026-01-26", "2026-04-03", "2026-04-04",
+    "2026-04-06", "2026-04-25", "2026-06-08", "2026-08-03",
+    "2026-10-05", "2026-12-25", "2026-12-26", "2026-12-28",
+]);
+
+function getDayType(dateStr: string): "weekday" | "saturday" | "sunday" | "publicHoliday" {
+    if (NSW_HOLIDAYS.has(dateStr)) return "publicHoliday";
+    const d = new Date(dateStr + "T00:00:00");
+    const dow = d.getDay();
+    if (dow === 6) return "saturday";
+    if (dow === 0) return "sunday";
+    return "weekday";
+}
+
+export interface StaffEarningsRow {
+    name: string;
+    jobTitle: string;
+    total: number;
+    weekday: number;
+    saturday: number;
+    sunday: number;
+    publicHoliday: number;
+    weekdayHours: number;
+    saturdayHours: number;
+    sundayHours: number;
+    publicHolidayHours: number;
+    totalHours: number;
+    breaks: number;
+}
+
+/**
+ * Fetch per-staff earnings breakdown by day type for a date range.
+ * Returns earnings excl. super (no_super_earning) grouped by staff and day type.
+ */
+export async function fetchEarningsBreakdown(
+    periodStart: string,
+    periodEnd: string
+): Promise<StaffEarningsRow[]> {
+    const { data, error } = await supabase
+        .from("staff_shifts")
+        .select("staff_name, job_title, shift_date, effective_hours, no_super_earning, break_deducted")
+        .gte("shift_date", periodStart)
+        .lte("shift_date", periodEnd);
+
+    if (error) throw error;
+
+    const map = new Map<string, {
+        jobTitles: Set<string>;
+        weekday: number; saturday: number; sunday: number; publicHoliday: number;
+        weekdayHours: number; saturdayHours: number; sundayHours: number; publicHolidayHours: number;
+        breaks: number;
+    }>();
+
+    for (const row of data || []) {
+        const name = row.staff_name as string;
+        if (!name) continue;
+        if (!map.has(name)) {
+            map.set(name, {
+                jobTitles: new Set(),
+                weekday: 0, saturday: 0, sunday: 0, publicHoliday: 0,
+                weekdayHours: 0, saturdayHours: 0, sundayHours: 0, publicHolidayHours: 0,
+                breaks: 0,
+            });
+        }
+        const entry = map.get(name)!;
+        // Clean job title (strip _Bar, _Retail suffixes for display)
+        const rawTitle = (row.job_title as string) || "";
+        const cleanTitle = rawTitle.replace(/_Bar$/, "").replace(/_Retail$/, "");
+        if (cleanTitle) entry.jobTitles.add(cleanTitle);
+        const earning = Number(row.no_super_earning) || 0;
+        const hours = Number(row.effective_hours) || 0;
+        const dt = getDayType(row.shift_date as string);
+        entry[dt] += earning;
+        if (dt === "weekday") entry.weekdayHours += hours;
+        else if (dt === "saturday") entry.saturdayHours += hours;
+        else if (dt === "sunday") entry.sundayHours += hours;
+        else entry.publicHolidayHours += hours;
+        if (row.break_deducted) entry.breaks++;
+    }
+
+    return Array.from(map.entries()).map(([name, e]) => ({
+        name,
+        jobTitle: Array.from(e.jobTitles).sort().join(" / "),
+        total: e.weekday + e.saturday + e.sunday + e.publicHoliday,
+        weekday: e.weekday,
+        saturday: e.saturday,
+        sunday: e.sunday,
+        publicHoliday: e.publicHoliday,
+        weekdayHours: e.weekdayHours,
+        saturdayHours: e.saturdayHours,
+        sundayHours: e.sundayHours,
+        publicHolidayHours: e.publicHolidayHours,
+        totalHours: e.weekdayHours + e.saturdayHours + e.sundayHours + e.publicHolidayHours,
+        breaks: e.breaks,
+    }));
+}
