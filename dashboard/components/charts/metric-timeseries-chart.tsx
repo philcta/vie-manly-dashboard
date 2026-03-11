@@ -300,11 +300,15 @@ export function MetricTimeSeriesChart({
         return buildMetricData(compDailyStats, compCategoryData, compDailyLabour, metric, side, effectiveMargin, compCategoryDetailData, selectedCategories);
     }, [metric, side, compDailyStats, compCategoryData, compDailyLabour, effectiveMargin, compCategoryDetailData, selectedCategories]);
 
+    // ── Store opening date — exclude pre-opening data from ratio metrics ──
+    const STORE_OPENING_DATE = "2025-08-20";
+
     // ── Build historical value map for moving averages ──
     const historicalValueMap = useMemo(() => {
         const map = new Map<string, number>();
         const labourMap = new Map<string, number>();
         for (const l of historicalLabour) labourMap.set(l.date, l.labour_cost);
+        const isRatioMetric = metric === "real_profit_pct" || metric === "labour_pct";
 
         if (side === "category" && selectedCategories.size > 0 && historicalCategoryDetailData.length > 0) {
             // Category-filtered: use historical category detail data
@@ -343,6 +347,8 @@ export function MetricTimeSeriesChart({
         } else {
             // "All" or labour/profit metrics: use total daily stats
             for (const row of historicalStats) {
+                // Skip pre-opening dates for ratio metrics to avoid polluting averages
+                if (isRatioMetric && row.date < STORE_OPENING_DATE) continue;
                 let value = 0;
                 const lc = labourMap.get(row.date) || 0;
                 switch (metric) {
