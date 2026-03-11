@@ -31,7 +31,11 @@ export type MetricKey =
 type SideType = "all" | "cafe" | "retail" | "category";
 
 // Metrics that don't support category filtering (need whole-store data)
-const CATEGORY_INCOMPATIBLE: Set<MetricKey> = new Set(["labour_pct", "real_profit_pct", "customers"]);
+// - transactions: daily_item_summary counts per-item appearances, so a single
+//   transaction with items in 2 categories is counted twice → sum ≠ unique count
+// - avg_sale: depends on accurate transaction count
+// - labour_pct, real_profit_pct, customers: not available per category
+const CATEGORY_INCOMPATIBLE: Set<MetricKey> = new Set(["labour_pct", "real_profit_pct", "customers", "transactions", "avg_sale"]);
 
 interface MetricDef {
     label: string;
