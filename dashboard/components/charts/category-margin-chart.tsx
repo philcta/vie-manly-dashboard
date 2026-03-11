@@ -1,16 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import {
-    BarChart,
-    Bar,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    ResponsiveContainer,
-    Cell,
-} from "recharts";
+import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { formatPercent, formatCurrency } from "@/lib/format";
 
 interface CategoryMargin {
@@ -32,9 +23,21 @@ const BAR_COLORS = {
     Unknown: "#B8B8C8",
 };
 
+type SortKey = "scope" | "side" | "margin_pct" | "stock_value" | "product_count";
+
 export function CategoryMarginChart({ data }: CategoryMarginChartProps) {
     const [selectedSide, setSelectedSide] = useState<"All" | "Cafe" | "Retail">("All");
-    const [sortBy, setSortBy] = useState<"margin" | "value" | "alpha">("margin");
+    const [sortKey, setSortKey] = useState<SortKey>("margin_pct");
+    const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+    const handleSort = (key: SortKey) => {
+        if (sortKey === key) {
+            setSortDir(sortDir === "asc" ? "desc" : "asc");
+        } else {
+            setSortKey(key);
+            setSortDir(key === "scope" || key === "side" ? "asc" : "desc");
+        }
+    };
 
     const filtered = useMemo(() => {
         let items = data.filter(d => d.scope !== "overall" && d.scope !== "");
@@ -42,24 +45,33 @@ export function CategoryMarginChart({ data }: CategoryMarginChartProps) {
             items = items.filter(d => d.side === selectedSide);
         }
 
-        switch (sortBy) {
-            case "margin":
-                items.sort((a, b) => b.margin_pct - a.margin_pct);
-                break;
-            case "value":
-                items.sort((a, b) => b.stock_value - a.stock_value);
-                break;
-            case "alpha":
-                items.sort((a, b) => a.scope.localeCompare(b.scope));
-                break;
-        }
+        const sorted = [...items].sort((a, b) => {
+            const aVal = a[sortKey];
+            const bVal = b[sortKey];
+            let cmp = 0;
+            if (typeof aVal === "string" && typeof bVal === "string") {
+                cmp = aVal.localeCompare(bVal);
+            } else {
+                cmp = (Number(aVal) || 0) - (Number(bVal) || 0);
+            }
+            return sortDir === "asc" ? cmp : -cmp;
+        });
 
-        return items;
-    }, [data, selectedSide, sortBy]);
+        return sorted;
+    }, [data, selectedSide, sortKey, sortDir]);
 
     const avgMargin = filtered.length > 0
         ? filtered.reduce((s, d) => s + d.margin_pct, 0) / filtered.length
         : 0;
+
+    const SortIcon = ({ colKey }: { colKey: SortKey }) => {
+        if (sortKey === colKey) {
+            return sortDir === "asc"
+                ? <ChevronUp className="w-3.5 h-3.5 text-olive" />
+                : <ChevronDown className="w-3.5 h-3.5 text-olive" />;
+        }
+        return <ChevronsUpDown className="w-3.5 h-3.5 opacity-30" />;
+    };
 
     return (
         <div
@@ -77,64 +89,75 @@ export function CategoryMarginChart({ data }: CategoryMarginChartProps) {
                     </p>
                 </div>
 
-                {/* Controls */}
-                <div className="flex items-center gap-3">
-                    {/* Side filter */}
-                    <div className="flex items-center gap-1 rounded-lg border border-border bg-background p-0.5">
-                        {(["All", "Cafe", "Retail"] as const).map((side) => (
-                            <button
-                                key={side}
-                                onClick={() => setSelectedSide(side)}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200 cursor-pointer ${selectedSide === side
-                                    ? "bg-olive text-white shadow-sm"
-                                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                                    }`}
-                            >
-                                {side}
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* Sort */}
-                    <select
-                        value={sortBy}
-                        onChange={(e) => setSortBy(e.target.value as "margin" | "value" | "alpha")}
-                        className="text-xs border border-border rounded-md px-2 py-1.5 bg-background text-foreground cursor-pointer"
-                    >
-                        <option value="margin">Sort: Margin %</option>
-                        <option value="value">Sort: Stock Value</option>
-                        <option value="alpha">Sort: A–Z</option>
-                    </select>
+                {/* Side filter */}
+                <div className="flex items-center gap-1 rounded-lg border border-border bg-background p-0.5">
+                    {(["All", "Cafe", "Retail"] as const).map((side) => (
+                        <button
+                            key={side}
+                            onClick={() => setSelectedSide(side)}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200 cursor-pointer ${selectedSide === side
+                                ? "bg-olive text-white shadow-sm"
+                                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                                }`}
+                        >
+                            {side}
+                        </button>
+                    ))}
                 </div>
             </div>
 
-            {/* Scrollable table-style chart */}
+            {/* Table */}
             <div className="overflow-y-auto" style={{ maxHeight: 480 }}>
                 <table className="w-full">
                     <thead className="sticky top-0 bg-[#FAFAF8] z-10">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-body w-[220px]">
-                                Category
+                            <th
+                                onClick={() => handleSort("scope")}
+                                className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-body w-[220px] cursor-pointer select-none hover:text-foreground transition-colors"
+                            >
+                                <span className="inline-flex items-center gap-1">
+                                    Category <SortIcon colKey="scope" />
+                                </span>
                             </th>
-                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-body w-[60px]">
-                                Side
+                            <th
+                                onClick={() => handleSort("side")}
+                                className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-body w-[60px] cursor-pointer select-none hover:text-foreground transition-colors"
+                            >
+                                <span className="inline-flex items-center gap-1">
+                                    Side <SortIcon colKey="side" />
+                                </span>
                             </th>
-                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-body">
-                                Margin
+                            <th
+                                onClick={() => handleSort("margin_pct")}
+                                className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors"
+                            >
+                                <span className="inline-flex items-center gap-1">
+                                    Margin <SortIcon colKey="margin_pct" />
+                                </span>
                             </th>
                             <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-body w-[80px]">
                                 %
                             </th>
-                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-body w-[90px]">
-                                Stock Value
+                            <th
+                                onClick={() => handleSort("stock_value")}
+                                className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-body w-[90px] cursor-pointer select-none hover:text-foreground transition-colors"
+                            >
+                                <span className="inline-flex items-center gap-1 justify-end">
+                                    Stock Value <SortIcon colKey="stock_value" />
+                                </span>
                             </th>
-                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-body w-[60px]">
-                                Items
+                            <th
+                                onClick={() => handleSort("product_count")}
+                                className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-text-body w-[60px] cursor-pointer select-none hover:text-foreground transition-colors"
+                            >
+                                <span className="inline-flex items-center gap-1 justify-end">
+                                    Items <SortIcon colKey="product_count" />
+                                </span>
                             </th>
                         </tr>
                     </thead>
                     <tbody>
-                        {filtered.map((item, i) => {
+                        {filtered.map((item) => {
                             const barWidth = Math.max(item.margin_pct, 1);
                             const barColor = BAR_COLORS[item.side as keyof typeof BAR_COLORS] || BAR_COLORS.Unknown;
                             return (
