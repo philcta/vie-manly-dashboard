@@ -229,8 +229,8 @@ export function buildPeriodMembers(
                 avgSpendCafe: pattern ? (pattern.alltime_cafe_spent / Math.max(s.visits, 1)) : 0,
                 avgSpendRetail: pattern ? (pattern.alltime_retail_spent / Math.max(s.visits, 1)) : 0,
                 last30AvgSpend: pattern?.last30_avg_spend ?? 0,
-                last30CafeSpent: pattern?.last30_cafe_spent ?? 0,
-                last30RetailSpent: pattern?.last30_retail_spent ?? 0,
+                last30CafeAvg: pattern && pattern.last30_visits > 0 ? (pattern.last30_cafe_spent / pattern.last30_visits) : 0,
+                last30RetailAvg: pattern && pattern.last30_visits > 0 ? (pattern.last30_retail_spent / pattern.last30_visits) : 0,
                 last30Visits: pattern?.last30_visits ?? 0,
                 spendDropPct: pattern?.spend_drop_pct ?? 0,
             };

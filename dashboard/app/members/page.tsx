@@ -48,8 +48,8 @@ interface MemberRow {
     avgSpendCafe: number;
     avgSpendRetail: number;
     last30AvgSpend: number;
-    last30CafeSpent: number;
-    last30RetailSpent: number;
+    last30CafeAvg: number;
+    last30RetailAvg: number;
     last30Visits: number;
     spendDropPct: number;
     points: number;
@@ -160,19 +160,19 @@ const MEMBER_COLUMNS: ColumnDef<MemberRow>[] = [
         groupParent: true,
     },
     {
-        key: "last30CafeSpent",
+        key: "last30CafeAvg",
         label: "☕ 30d",
         align: "right",
-        sortValue: (r) => r.last30CafeSpent,
-        render: (r) => <span className="tabular-nums text-olive">{formatCurrency(r.last30CafeSpent)}</span>,
+        sortValue: (r) => r.last30CafeAvg,
+        render: (r) => <span className="tabular-nums text-olive">{formatCurrency(r.last30CafeAvg)}</span>,
         group: "30d Breakdown",
     },
     {
-        key: "last30RetailSpent",
+        key: "last30RetailAvg",
         label: "🛍 30d",
         align: "right",
-        sortValue: (r) => r.last30RetailSpent,
-        render: (r) => <span className="tabular-nums text-[#B07242]">{formatCurrency(r.last30RetailSpent)}</span>,
+        sortValue: (r) => r.last30RetailAvg,
+        render: (r) => <span className="tabular-nums text-[#B07242]">{formatCurrency(r.last30RetailAvg)}</span>,
         group: "30d Breakdown",
     },
     {
@@ -194,34 +194,34 @@ const MEMBER_COLUMNS: ColumnDef<MemberRow>[] = [
             if (r.last30Visits === 0) {
                 return (
                     <span className="inline-flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-600">
-                        ⚠️ Inactive
+                        Inactive
                     </span>
                 );
             }
             if (drop >= 50) {
                 return (
                     <span className="inline-flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-600 animate-pulse">
-                        🔻 {drop.toFixed(0)}%
+                        {drop.toFixed(0)}%
                     </span>
                 );
             }
             if (drop >= 25) {
                 return (
                     <span className="inline-flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
-                        📉 {drop.toFixed(0)}%
+                        {drop.toFixed(0)}%
                     </span>
                 );
             }
             if (drop < 0) {
                 return (
                     <span className="inline-flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
-                        📈 +{Math.abs(drop).toFixed(0)}%
+                        +{Math.abs(drop).toFixed(0)}%
                     </span>
                 );
             }
             return (
-                <span className="inline-flex items-center gap-0.5 text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                    — Stable
+                <span className="text-xs text-muted-foreground">
+                    —
                 </span>
             );
         },
