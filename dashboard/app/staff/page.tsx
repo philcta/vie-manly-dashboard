@@ -5,7 +5,9 @@ import { motion } from "framer-motion";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import KpiCard from "@/components/kpi-card";
 import PeriodSelector from "@/components/period-selector";
+import StaffRatesEditor from "@/components/staff-rates-editor";
 import {
+    type StaffShift,
     fetchStaffShifts,
     fetchStaffRates,
     aggregateStaffKPIs,
@@ -13,7 +15,6 @@ import {
     getPayPeriod,
     fetchBiweeklyEarnings,
     fetchBreakStats,
-    type StaffShift,
 } from "@/lib/queries/staff";
 import { fetchDailyStats, aggregateStats } from "@/lib/queries/overview";
 import {
@@ -29,18 +30,30 @@ import {
     calcChange,
 } from "@/lib/format";
 import {
-    BarChart,
-    Bar,
+    LineChart,
+    Line,
     XAxis,
     YAxis,
     CartesianGrid,
-    Tooltip,
+    Tooltip as RechartsTooltip,
     ResponsiveContainer,
     Legend,
-    PieChart,
-    Pie,
+    BarChart,
+    Bar,
     Cell,
 } from "recharts";
+
+// ── Colors ──────────────────────────────────────────────────────
+const COLORS = {
+    teenCafe: "#81B29A",    // sage green
+    teenRetail: "#F2CC8F",  // sand/gold
+    adultCafe: "#6B7355",   // olive
+    adultRetail: "#E07A5F", // coral
+    cafe: "#6B7355",
+    retail: "#E07A5F",
+    teen: "#81B29A",
+    adult: "#3D405B",       // charcoal
+};
 
 export default function StaffPage() {
     const [period, setPeriod] = useState<PeriodType>("this_month");
@@ -103,31 +116,38 @@ export default function StaffPage() {
     const kpis = aggregateStaffKPIs(shifts, netSales);
     const compKpis = aggregateStaffKPIs(compShifts, compNetSales);
 
-    // Build daily labour cost data for chart
-    const dailyLabourMap = new Map<string, { date: string; cafe: number; retail: number }>();
-    for (const s of shifts) {
-        if (!dailyLabourMap.has(s.shift_date)) {
-            dailyLabourMap.set(s.shift_date, { date: s.shift_date, cafe: 0, retail: 0 });
+    // ── Build daily line-chart data with teen/adult/café/retail splits ──
+    const dailyLineData = (() => {
+        const dayMap = new Map<string, {
+            date: string; cafe: number; retail: number; teen: number; adult: number;
+        }>();
+        for (const s of shifts) {
+            if (!dayMap.has(s.shift_date)) {
+                dayMap.set(s.shift_date, { date: s.shift_date, cafe: 0, retail: 0, teen: 0, adult: 0 });
+            }
+            const entry = dayMap.get(s.shift_date)!;
+            if (s.business_side === "Bar") entry.cafe += s.labour_cost;
+            else entry.retail += s.labour_cost;
+            if (s.is_teen) entry.teen += s.labour_cost;
+            else entry.adult += s.labour_cost;
         }
-        const entry = dailyLabourMap.get(s.shift_date)!;
-        if (s.business_side === "Bar") {
-            entry.cafe += s.labour_cost;
-        } else {
-            entry.retail += s.labour_cost;
-        }
-    }
-    const dailyLabourData = Array.from(dailyLabourMap.values())
-        .sort((a, b) => a.date.localeCompare(b.date))
-        .map((d) => ({
-            ...d,
-            label: new Date(d.date).toLocaleDateString("en-AU", { weekday: "short" }),
-        }));
+        return Array.from(dayMap.values())
+            .sort((a, b) => a.date.localeCompare(b.date))
+            .map((d) => ({
+                ...d,
+                label: new Date(d.date).toLocaleDateString("en-AU", { day: "numeric", month: "short" }),
+            }));
+    })();
 
-    // Donut data for Cafe vs Retail hours
-    const donutData = [
-        { name: "Cafe", value: kpis.cafeHours, color: "#6B7355" },
-        { name: "Retail", value: kpis.retailHours, color: "#E07A5F" },
+    // ── 4-way split data for right chart ──
+    const fourWayData = [
+        { segment: "Adult Café", hours: kpis.adultCafeHours, cost: kpis.adultCafeCost, color: COLORS.adultCafe },
+        { segment: "Adult Retail", hours: kpis.adultRetailHours, cost: kpis.adultRetailCost, color: COLORS.adultRetail },
+        { segment: "Teen Café", hours: kpis.teenCafeHours, cost: kpis.teenCafeCost, color: COLORS.teenCafe },
+        { segment: "Teen Retail", hours: kpis.teenRetailHours, cost: kpis.teenRetailCost, color: COLORS.teenRetail },
     ];
+    const totalCost4way = fourWayData.reduce((s, d) => s + d.cost, 0);
+    const totalHours4way = fourWayData.reduce((s, d) => s + d.hours, 0);
 
     return (
         <motion.div
@@ -186,7 +206,7 @@ export default function StaffPage() {
                             value={kpis.labourCostRatio}
                             formatter={(n) => formatPercent(n)}
                             change={compKpis.labourCostRatio > 0 ? calcChange(kpis.labourCostRatio, compKpis.labourCostRatio) : null}
-                            subtitle="Target: 25–35%"
+                            subtitle={`Teens: ${formatCurrency(kpis.teenCost)} · Adults: ${formatCurrency(kpis.adultCost)}`}
                             delay={2}
                         />
                         <KpiCard
@@ -194,65 +214,124 @@ export default function StaffPage() {
                             value={kpis.revenuePerHour}
                             formatter={(n) => formatCurrency(n)}
                             change={compKpis.revenuePerHour > 0 ? calcChange(kpis.revenuePerHour, compKpis.revenuePerHour) : null}
+                            subtitle={`Teen: ${kpis.teenHours.toFixed(1)}h · Adult: ${kpis.adultHours.toFixed(1)}h`}
                             delay={3}
                         />
                     </div>
 
                     {/* Charts Row */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                        {/* Labour Cost by Day */}
+                        {/* Left: Labour Cost Line Chart */}
                         <div className="bg-card rounded-xl border border-border p-6" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
                             <h3 className="text-base font-semibold text-foreground mb-4">
-                                Labour Cost by Day
+                                Daily Labour Cost
                             </h3>
                             <ResponsiveContainer width="100%" height={280}>
-                                <BarChart data={dailyLabourData} barGap={2}>
+                                <LineChart data={dailyLineData}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#F0F0EE" vertical={false} />
-                                    <XAxis dataKey="label" tick={{ fill: "#8A8A8A", fontSize: 11 }} axisLine={{ stroke: "#EAEAE8" }} tickLine={false} />
-                                    <YAxis tick={{ fill: "#8A8A8A", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `$${v}`} />
-                                    <Tooltip contentStyle={{ background: "white", borderRadius: 8, border: "1px solid #EAEAE8", boxShadow: "0 4px 12px rgba(0,0,0,0.08)", fontSize: 13 }} formatter={(v: number, name: string) => [formatCurrency(v), name === "cafe" ? "Cafe" : "Retail"]} />
-                                    <Legend formatter={(v: string) => (v === "cafe" ? "Cafe" : "Retail")} wrapperStyle={{ fontSize: 12 }} />
-                                    <Bar dataKey="cafe" stackId="a" fill="#6B7355" radius={[0, 0, 0, 0]} animationDuration={600} />
-                                    <Bar dataKey="retail" stackId="a" fill="#E07A5F" radius={[4, 4, 0, 0]} animationDuration={600} />
-                                </BarChart>
+                                    <XAxis
+                                        dataKey="label"
+                                        tick={{ fill: "#8A8A8A", fontSize: 10 }}
+                                        axisLine={{ stroke: "#EAEAE8" }}
+                                        tickLine={false}
+                                        interval="preserveStartEnd"
+                                    />
+                                    <YAxis
+                                        tick={{ fill: "#8A8A8A", fontSize: 11 }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tickFormatter={(v: number) => `$${v}`}
+                                    />
+                                    <RechartsTooltip
+                                        contentStyle={{
+                                            background: "white",
+                                            borderRadius: 12,
+                                            border: "1px solid #EAEAE8",
+                                            boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
+                                            fontSize: 13,
+                                            padding: "12px 16px",
+                                        }}
+                                        formatter={(v: number, name: string) => [
+                                            formatCurrency(v),
+                                            name === "cafe" ? "☕ Café" : name === "retail" ? "🛍 Retail" : name === "teen" ? "👦 Teen" : "👤 Adult",
+                                        ]}
+                                    />
+                                    <Legend
+                                        formatter={(v: string) =>
+                                            v === "cafe" ? "☕ Café" : v === "retail" ? "🛍 Retail" : v === "teen" ? "👦 Teen" : "👤 Adult"
+                                        }
+                                        wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+                                    />
+                                    <Line type="monotone" dataKey="cafe" stroke={COLORS.cafe} strokeWidth={2} dot={false} />
+                                    <Line type="monotone" dataKey="retail" stroke={COLORS.retail} strokeWidth={2} dot={false} />
+                                    <Line type="monotone" dataKey="teen" stroke={COLORS.teen} strokeWidth={2} dot={false} strokeDasharray="6 3" />
+                                    <Line type="monotone" dataKey="adult" stroke={COLORS.adult} strokeWidth={2} dot={false} strokeDasharray="6 3" />
+                                </LineChart>
                             </ResponsiveContainer>
                         </div>
 
-                        {/* Cafe vs Retail Hours Donut */}
+                        {/* Right: 4-way Split Horizontal Bars */}
                         <div className="bg-card rounded-xl border border-border p-6" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
                             <h3 className="text-base font-semibold text-foreground mb-4">
-                                Hours Split — Cafe vs Retail
+                                Labour Split — Teen vs Adult × Café vs Retail
                             </h3>
-                            <div className="flex items-center justify-center">
-                                <ResponsiveContainer width="100%" height={280}>
-                                    <PieChart>
-                                        <Pie
-                                            data={donutData}
-                                            cx="50%"
-                                            cy="50%"
-                                            innerRadius={70}
-                                            outerRadius={110}
-                                            paddingAngle={3}
-                                            dataKey="value"
-                                            animationDuration={800}
-                                        >
-                                            {donutData.map((entry, i) => (
-                                                <Cell key={i} fill={entry.color} />
-                                            ))}
-                                        </Pie>
-                                        <Tooltip contentStyle={{ background: "white", borderRadius: 8, border: "1px solid #EAEAE8", fontSize: 13 }} formatter={(v: number) => [`${v.toFixed(1)}h`]} />
-                                        <Legend formatter={(v: string) => v} wrapperStyle={{ fontSize: 12 }} />
-                                    </PieChart>
-                                </ResponsiveContainer>
+                            <div className="space-y-3">
+                                {fourWayData.map((seg) => {
+                                    const pct = totalCost4way > 0 ? (seg.cost / totalCost4way) * 100 : 0;
+                                    const revPerHr = seg.hours > 0 ? netSales * (seg.hours / totalHours4way) / seg.hours : 0;
+                                    return (
+                                        <div key={seg.segment} className="group relative">
+                                            <div className="flex items-center justify-between mb-1">
+                                                <span className="text-sm font-medium text-foreground">{seg.segment}</span>
+                                                <span className="text-sm font-semibold text-foreground tabular-nums">{formatCurrency(seg.cost)}</span>
+                                            </div>
+                                            <div className="relative h-7 bg-muted/40 rounded-lg overflow-hidden">
+                                                <div
+                                                    className="absolute inset-y-0 left-0 rounded-lg transition-all duration-700 ease-out"
+                                                    style={{ width: `${Math.max(pct, 1)}%`, backgroundColor: seg.color }}
+                                                />
+                                                <span className="absolute inset-0 flex items-center px-3 text-xs font-semibold text-white mix-blend-difference tabular-nums">
+                                                    {pct.toFixed(1)}% · {seg.hours.toFixed(1)}h
+                                                </span>
+                                            </div>
+                                            {/* Hover tooltip */}
+                                            <div className="invisible group-hover:visible absolute left-1/2 -translate-x-1/2 bottom-full mb-2 bg-foreground text-background rounded-lg px-4 py-2.5 text-xs whitespace-nowrap z-20 shadow-lg">
+                                                <div className="font-semibold mb-1">{seg.segment}</div>
+                                                <div>Hours: {seg.hours.toFixed(1)}h ({totalHours4way > 0 ? ((seg.hours / totalHours4way) * 100).toFixed(1) : 0}%)</div>
+                                                <div>Cost: {formatCurrency(seg.cost)} ({pct.toFixed(1)}%)</div>
+                                                <div>Rev/hr: {formatCurrency(revPerHr)}</div>
+                                                <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-transparent border-t-foreground" />
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
-                            <p className="text-center text-2xl font-bold text-foreground mt-2 tabular-nums">
-                                {kpis.totalHours.toFixed(1)}h
-                            </p>
-                            <p className="text-center text-xs text-muted-foreground">total</p>
+
+                            {/* Stacked bar summary */}
+                            <div className="mt-5 pt-4 border-t border-border">
+                                <div className="text-xs text-muted-foreground mb-2 font-medium">Distribution</div>
+                                <div className="flex h-5 rounded-full overflow-hidden">
+                                    {fourWayData.map((seg) => {
+                                        const pct = totalCost4way > 0 ? (seg.cost / totalCost4way) * 100 : 0;
+                                        return (
+                                            <div
+                                                key={seg.segment}
+                                                className="transition-all duration-700"
+                                                style={{ width: `${pct}%`, backgroundColor: seg.color }}
+                                                title={`${seg.segment}: ${pct.toFixed(1)}%`}
+                                            />
+                                        );
+                                    })}
+                                </div>
+                                <div className="flex justify-between mt-2 text-[10px] text-muted-foreground">
+                                    <span>Total: {formatCurrency(totalCost4way)}</span>
+                                    <span>{totalHours4way.toFixed(1)}h</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    {/* Staff Rates Table */}
+                    {/* Staff Rates Table with earnings + breaks */}
                     {(() => {
                         type SortKey = "name" | "role" | "earnings" | "weekday" | "saturday" | "sunday" | "publicHoliday" | "breaks";
                         const activeRates = ratesTable.filter((r) => r.isActive);
@@ -318,6 +397,9 @@ export default function StaffPage() {
                                 <ChevronsUpDown className="w-3.5 h-3.5 opacity-30" />
                             )
                         );
+
+                        // Sum earnings for the total row
+                        const totalEarnings = sortedRates.reduce((s, r) => s + (earningsMap.get(r.name) || 0), 0);
 
                         return (
                             <div className="bg-card rounded-xl border border-border overflow-hidden" style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
@@ -392,6 +474,18 @@ export default function StaffPage() {
                                                     <span className="inline-flex items-center justify-center gap-1">Breaks<SortIcon col="breaks" /></span>
                                                 </th>
                                             </tr>
+                                            {/* Total Earnings row */}
+                                            {totalEarnings > 0 && (
+                                                <tr className="bg-olive-surface/40 border-b border-border">
+                                                    <td className="px-4 py-2 text-xs font-semibold text-olive" colSpan={2}>
+                                                        Total Earnings
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right tabular-nums font-bold text-olive text-sm">
+                                                        {formatCurrency(totalEarnings)}
+                                                    </td>
+                                                    <td colSpan={5}></td>
+                                                </tr>
+                                            )}
                                         </thead>
                                         <tbody>
                                             {sortedRates.map((r, i) => {

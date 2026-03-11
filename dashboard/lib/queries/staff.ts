@@ -22,6 +22,7 @@ export interface StaffShift {
     effective_hours: number;
     hourly_rate: number;
     labour_cost: number;
+    is_teen: boolean;
 }
 
 export interface StaffRate {
@@ -85,6 +86,24 @@ export function aggregateStaffKPIs(shifts: StaffShift[], netSales: number) {
     const cafeCost = cafeShifts.reduce((s, sh) => s + sh.labour_cost, 0);
     const retailCost = retailShifts.reduce((s, sh) => s + sh.labour_cost, 0);
 
+    // Teen / Adult split
+    const teenShifts = shifts.filter((s) => s.is_teen);
+    const adultShifts = shifts.filter((s) => !s.is_teen);
+    const teenCost = teenShifts.reduce((s, sh) => s + sh.labour_cost, 0);
+    const adultCost = adultShifts.reduce((s, sh) => s + sh.labour_cost, 0);
+    const teenHours = teenShifts.reduce((s, sh) => s + sh.effective_hours, 0);
+    const adultHours = adultShifts.reduce((s, sh) => s + sh.effective_hours, 0);
+
+    // 4-way split: teen cafe, teen retail, adult cafe, adult retail
+    const teenCafeCost = shifts.filter((s) => s.is_teen && s.business_side === "Bar").reduce((s, sh) => s + sh.labour_cost, 0);
+    const teenRetailCost = shifts.filter((s) => s.is_teen && s.business_side === "Retail").reduce((s, sh) => s + sh.labour_cost, 0);
+    const adultCafeCost = shifts.filter((s) => !s.is_teen && s.business_side === "Bar").reduce((s, sh) => s + sh.labour_cost, 0);
+    const adultRetailCost = shifts.filter((s) => !s.is_teen && s.business_side === "Retail").reduce((s, sh) => s + sh.labour_cost, 0);
+    const teenCafeHours = shifts.filter((s) => s.is_teen && s.business_side === "Bar").reduce((s, sh) => s + sh.effective_hours, 0);
+    const teenRetailHours = shifts.filter((s) => s.is_teen && s.business_side === "Retail").reduce((s, sh) => s + sh.effective_hours, 0);
+    const adultCafeHours = shifts.filter((s) => !s.is_teen && s.business_side === "Bar").reduce((s, sh) => s + sh.effective_hours, 0);
+    const adultRetailHours = shifts.filter((s) => !s.is_teen && s.business_side === "Retail").reduce((s, sh) => s + sh.effective_hours, 0);
+
     return {
         staffCount: uniqueStaff.size,
         totalHours,
@@ -97,6 +116,20 @@ export function aggregateStaffKPIs(shifts: StaffShift[], netSales: number) {
         retailHours,
         cafeCost,
         retailCost,
+        // Teen / Adult
+        teenCost,
+        adultCost,
+        teenHours,
+        adultHours,
+        // 4-way split
+        teenCafeCost,
+        teenRetailCost,
+        adultCafeCost,
+        adultRetailCost,
+        teenCafeHours,
+        teenRetailHours,
+        adultCafeHours,
+        adultRetailHours,
     };
 }
 

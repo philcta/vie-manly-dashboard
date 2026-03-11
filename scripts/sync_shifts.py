@@ -48,6 +48,15 @@ CAFE_TITLES = {'Kitchen'}  # 100% Cafe
 SPLIT_TITLES = {'Barrista': {'Bar': 0.80, 'Retail': 0.20}}
 OVERHEAD_TITLES = {'Expansion/Meeting'}
 
+# Full-time employees exempt from 30-min break deduction
+# (they take paid breaks as part of their full-time arrangement)
+BREAK_EXEMPT_TEAM_IDS = set()  # populated at runtime from team member lookup
+BREAK_EXEMPT_NAMES = {'Ana Flores'}  # full-time Manager
+
+# Break deduction parameters
+BREAK_THRESHOLD = 6.25  # 6h15m — shifts longer than this get a break deduction
+BREAK_DEDUCTION = 0.5   # 30 minutes
+
 # Historical: Jenny Kirkpatrick (first Retail Assistant alphabetically who
 # filled the Barrista role before it was created on 2026-03-03)
 BARRISTA_CREATED_DATE = date(2026, 3, 3)
@@ -121,6 +130,12 @@ def build_lookups():
             HISTORICAL_BARRISTA_ID = mid
             break
 
+    # Build break-exempt IDs
+    global BREAK_EXEMPT_TEAM_IDS
+    BREAK_EXEMPT_TEAM_IDS = {mid for mid, name in names.items() if name in BREAK_EXEMPT_NAMES}
+    if BREAK_EXEMPT_TEAM_IDS:
+        print(f"  Break-exempt staff: {', '.join(names[m] for m in BREAK_EXEMPT_TEAM_IDS)}")
+
     return names, jobs
 
 # ── Load rates from Supabase staff_rates table ──
@@ -129,7 +144,7 @@ def build_lookups():
 def load_rates():
     """Returns dict: (team_member_id, job_title, day_type) → hourly_rate"""
     req = urllib.request.Request(
-        f"{SUPA_URL}/rest/v1/staff_rates?select=team_member_id,staff_name,job_title,day_type,hourly_rate",
+        f"{SUPA_URL}/rest/v1/staff_rates?select=team_member_id,staff_name,job_title,day_type,hourly_rate,is_teen",
         headers={
             'apikey': SUPA_KEY,
             'Authorization': 'Bearer ' + SUPA_KEY,
@@ -138,10 +153,13 @@ def load_rates():
     resp = urllib.request.urlopen(req)
     rows = json.loads(resp.read())
     rates = {}
+    teen_ids = set()
     for r in rows:
         key = (r['team_member_id'], r['job_title'], r['day_type'])
         rates[key] = float(r['hourly_rate'])
-    return rates
+        if r.get('is_teen'):
+            teen_ids.add(r['team_member_id'])
+    return rates, teen_ids
 
 def get_rate(rates, mid, job_title, day_type):
     """Look up rate from staff_rates, fallback to weekday if specific day type not set."""
@@ -239,7 +257,9 @@ def fetch_actual(start_dt):
     return all_shifts
 
 # ── Main sync for a single day ──
-def sync_day(target_date, names, jobs, rates):
+def sync_day(target_date, names, jobs, rates, teen_ids=None):
+    if teen_ids is None:
+        teen_ids = set()
     syd_tz = SYD_TZ
     day_start = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0, tzinfo=syd_tz)
     day_end = day_start + timedelta(days=1)
@@ -301,10 +321,8 @@ def sync_day(target_date, names, jobs, rates):
         # Applied to the FULL shift duration BEFORE any role split.
         # When an employee works > 6h15 in a single shift, they take
         # a 30-minute unpaid break automatically.
-        BREAK_THRESHOLD = 6.25  # 6h15m
-        BREAK_DEDUCTION = 0.5   # 30 minutes
         break_deducted = False
-        if eff_hours > BREAK_THRESHOLD:
+        if eff_hours > BREAK_THRESHOLD and mid not in BREAK_EXEMPT_TEAM_IDS:
             eff_hours = round(eff_hours - BREAK_DEDUCTION, 2)
             break_deducted = True
 
@@ -348,6 +366,7 @@ def sync_day(target_date, names, jobs, rates):
                     "hourly_rate": rate,
                     "break_deducted": break_deducted,
                     "no_super_earning": round(cost / 1.12, 2),
+                    "is_teen": mid in teen_ids,
                 })
         else:
             side = get_side(job_title)
@@ -371,6 +390,7 @@ def sync_day(target_date, names, jobs, rates):
                 "hourly_rate": rate,
                 "break_deducted": break_deducted,
                 "no_super_earning": round(cost / 1.12, 2),
+                "is_teen": mid in teen_ids,
             })
 
     # Unscheduled clock-ins (actuals not matched to schedule)
@@ -389,7 +409,7 @@ def sync_day(target_date, names, jobs, rates):
             # Apply break deduction for unscheduled actuals too
             break_ded = False
             eff_h = act_hours
-            if eff_h > BREAK_THRESHOLD:
+            if eff_h > BREAK_THRESHOLD and mid not in BREAK_EXEMPT_TEAM_IDS:
                 eff_h = round(eff_h - BREAK_DEDUCTION, 2)
                 break_ded = True
             cost = round(eff_h * rate, 2)
@@ -411,6 +431,7 @@ def sync_day(target_date, names, jobs, rates):
                 "hourly_rate": rate,
                 "break_deducted": break_ded,
                 "no_super_earning": round(cost / 1.12, 2),
+                "is_teen": mid in teen_ids,
             })
 
     return rows
@@ -444,8 +465,8 @@ if __name__ == '__main__':
     print(f"  Historical Barrista proxy: {names.get(HISTORICAL_BARRISTA_ID, '?')} ({HISTORICAL_BARRISTA_ID})")
 
     print("📥 Loading rates from staff_rates table...")
-    rates = load_rates()
-    print(f"  {len(rates)} rate entries loaded")
+    rates, teen_ids = load_rates()
+    print(f"  {len(rates)} rate entries loaded, {len(teen_ids)} teen IDs")
 
     syd_tz = SYD_TZ
     today = datetime.now(syd_tz).date()
@@ -462,7 +483,7 @@ if __name__ == '__main__':
 
     for i in range(days_to_sync):
         d = start_date + timedelta(days=i)
-        rows = sync_day(d, names, jobs, rates)
+        rows = sync_day(d, names, jobs, rates, teen_ids)
 
         day_type = get_day_type(d)
         schedule_count = sum(1 for r in rows if r['source'] == 'schedule')
