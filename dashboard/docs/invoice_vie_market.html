@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Invoice — Your AI Business Consultant</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Inter:wght@300;400;500;600&display=swap');
+
+        :root {
+            --bg: #FAFAFA;
+            --card: #FFFFFF;
+            --text: #111111;
+            --text-secondary: #666666;
+            --text-muted: #999999;
+            --accent: #6C5CE7;
+            --accent-light: #A29BFE;
+            --accent-bg: #F0EEFF;
+            --border: #E8E8E8;
+            --dark: #1A1A2E;
+            --dark-mid: #16213E;
+            --gradient-start: #0F0C29;
+            --gradient-mid: #302B63;
+            --gradient-end: #24243E;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        @page {
+            size: A4;
+            margin: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            font-size: 11px;
+            line-height: 1.5;
+            color: var(--text);
+            background: var(--bg);
+        }
+
+        .page {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 0 auto;
+            background: var(--card);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .page+.page {
+            page-break-before: always;
+        }
+
+        /* ── Page 1: Header ────────────────────────────────────── */
+        .header {
+            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-mid) 50%, var(--gradient-end) 100%);
+            padding: 40px 48px 36px;
+            color: white;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -60px;
+            right: -60px;
+            width: 200px;
+            height: 200px;
+            background: radial-gradient(circle, rgba(108, 92, 231, 0.3) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+
+        .header::after {
+            content: '';
+            position: absolute;
+            bottom: -40px;
+            left: 30%;
+            width: 300px;
+            height: 100px;
+            background: radial-gradient(ellipse, rgba(162, 155, 254, 0.15) 0%, transparent 70%);
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            position: relative;
+            z-index: 1;
+        }
+
+        .brand {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .brand-sub {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 11px;
+            font-weight: 300;
+            color: rgba(255, 255, 255, 0.6);
+            margin-top: 2px;
+            letter-spacing: 0.5px;
+        }
+
+        .invoice-badge {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            opacity: 0.9;
+        }
+
+        .header-meta {
+            display: flex;
+            gap: 40px;
+            margin-top: 28px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .meta-block {}
+
+        .meta-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: rgba(255, 255, 255, 0.45);
+            font-weight: 500;
+            margin-bottom: 3px;
+        }
+
+        .meta-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.95);
+        }
+
+        /* ── Content area ─────────────────────────────────────── */
+        .content {
+            padding: 32px 48px;
+        }
+
+        .parties {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            margin-bottom: 32px;
+        }
+
+        .party-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--accent);
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .party-name {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 4px;
+        }
+
+        .party-detail {
+            font-size: 10.5px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* ── Line items table ─────────────────────────────────── */
+        .table-section {
+            margin-bottom: 0;
+        }
+
+        .table-header-label {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 12px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead th {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            font-weight: 500;
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 2px solid var(--border);
+        }
+
+        thead th:last-child,
+        thead th:nth-child(3),
+        thead th:nth-child(4) {
+            text-align: right;
+        }
+
+        tbody td {
+            padding: 14px 12px;
+            font-size: 11px;
+            border-bottom: 1px solid #F2F2F2;
+            vertical-align: top;
+        }
+
+        tbody td:last-child,
+        tbody td:nth-child(3),
+        tbody td:nth-child(4) {
+            text-align: right;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+        }
+
+        .item-name {
+            font-weight: 500;
+            color: var(--text);
+        }
+
+        .item-period {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        /* ── Totals ───────────────────────────────────────────── */
+        .totals-section {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+
+        .totals-box {
+            width: 260px;
+        }
+
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .total-row.divider {
+            border-top: 1px solid var(--border);
+        }
+
+        .total-row .label {}
+
+        .total-row .amount {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 500;
+        }
+
+        .total-row.grand {
+            background: linear-gradient(135deg, var(--gradient-start), var(--gradient-mid));
+            color: white;
+            padding: 14px 16px;
+            border-radius: 10px;
+            margin-top: 8px;
+            font-size: 13px;
+        }
+
+        .total-row.grand .label {
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .total-row.grand .amount {
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        /* ── Payment terms ────────────────────────────────────── */
+        .payment-section {
+            margin-top: 28px;
+            padding: 20px 24px;
+            background: var(--accent-bg);
+            border-radius: 12px;
+            border: 1px solid rgba(108, 92, 231, 0.1);
+        }
+
+        .payment-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 6px;
+        }
+
+        .payment-detail {
+            font-size: 10px;
+            color: var(--text-secondary);
+            line-height: 1.7;
+        }
+
+        .payment-detail strong {
+            color: var(--text);
+        }
+
+        /* ── Page 2: Deliverables ─────────────────────────────── */
+        .page2-header {
+            background: linear-gradient(135deg, var(--gradient-start), var(--gradient-mid), var(--gradient-end));
+            padding: 28px 48px;
+            color: white;
+            position: relative;
+        }
+
+        .page2-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+        }
+
+        .page2-sub {
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.5);
+            margin-top: 2px;
+        }
+
+        .deliverables {
+            padding: 28px 48px;
+        }
+
+        .del-section-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 2px solid var(--accent-bg);
+        }
+
+        .del-section-title:first-child {
+            margin-top: 0;
+        }
+
+        .del-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 24px;
+        }
+
+        .del-card {
+            padding: 12px 14px;
+            border-radius: 10px;
+            border: 1px solid #F0F0F0;
+            background: #FCFCFC;
+            transition: box-shadow 0.2s;
+        }
+
+        .del-card-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .del-card-title .icon {
+            width: 20px;
+            height: 20px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--accent-bg);
+            border-radius: 6px;
+            font-size: 10px;
+        }
+
+        .del-card-desc {
+            font-size: 9.5px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+            font-style: italic;
+        }
+
+        .del-card ul {
+            padding-left: 14px;
+            margin: 0;
+        }
+
+        .del-card li {
+            font-size: 9.5px;
+            color: var(--text-secondary);
+            margin-bottom: 1px;
+            line-height: 1.45;
+        }
+
+        /* ── Deliverable 2 ────────────────────────────────────── */
+        .del2-card {
+            padding: 14px 18px;
+            border-radius: 10px;
+            background: var(--accent-bg);
+            border: 1px solid rgba(108, 92, 231, 0.12);
+        }
+
+        .del2-card ul {
+            padding-left: 14px;
+            margin: 4px 0 0;
+        }
+
+        .del2-card li {
+            font-size: 9.5px;
+            color: var(--text-secondary);
+            margin-bottom: 2px;
+        }
+
+        /* ── Footer ───────────────────────────────────────────── */
+        .footer {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 16px 48px;
+            text-align: center;
+            font-size: 8.5px;
+            color: var(--text-muted);
+            border-top: 1px solid #F0F0F0;
+        }
+
+        .footer-accent {
+            color: var(--accent);
+            font-weight: 500;
+        }
+
+        @media print {
+            body {
+                background: white;
+            }
+
+            .page {
+                box-shadow: none;
+                margin: 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- ═══════════════════════════════════════════════════════════ PAGE 1 -->
+    <div class="page">
+
+        <!-- Header -->
+        <div class="header">
+            <div class="header-top">
+                <div>
+                    <div class="brand">Your AI Business Consultant</div>
+                    <div class="brand-sub">AI-Powered Business Intelligence & Strategy</div>
+                </div>
+                <div class="invoice-badge">INVOICE</div>
+            </div>
+
+            <div class="header-meta">
+                <div class="meta-block">
+                    <div class="meta-label">Invoice Number</div>
+                    <div class="meta-value">INV-002</div>
+                </div>
+                <div class="meta-block">
+                    <div class="meta-label">Issue Date</div>
+                    <div class="meta-value">12 March 2026</div>
+                </div>
+                <div class="meta-block">
+                    <div class="meta-label">Due Date</div>
+                    <div class="meta-value">31 March 2026</div>
+                </div>
+                <div class="meta-block">
+                    <div class="meta-label">Reference</div>
+                    <div class="meta-value">VIE-DASH-2026</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Content -->
+        <div class="content">
+
+            <!-- Parties -->
+            <div class="parties">
+                <div>
+                    <div class="party-label">Bill To</div>
+                    <div class="party-name">VIE Market</div>
+                    <div class="party-detail">
+                        Shop 16/17, 25 Wentworth St<br>
+                        Manly, NSW 2095<br>
+                        Australia
+                    </div>
+                </div>
+                <div>
+                    <div class="party-label">From</div>
+                    <div class="party-name">Your AI Business Consultant</div>
+                    <div class="party-detail">
+                        5 Galway Avenue<br>
+                        Killarney Heights, NSW 2087<br>
+                        Australia
+                    </div>
+                </div>
+            </div>
+
+            <!-- Line Items -->
+            <div class="table-section">
+                <div class="table-header-label">Services</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width:45%">Description</th>
+                            <th style="width:22%">Period</th>
+                            <th style="width:12%">Qty</th>
+                            <th style="width:21%">Amount (AUD)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>
+                                <div class="item-name">AI Business Intelligence Dashboard — Development & Configuration
+                                </div>
+                                <div class="item-period">Real-time analytics platform, Square POS integration, Supabase
+                                    backend setup, Vercel deployment</div>
+                            </td>
+                            <td>February 2026</td>
+                            <td>1</td>
+                            <td>$1,000.00</td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <div class="item-name">AI Business Intelligence Dashboard — Enhancements & Business
+                                    Strategy Report</div>
+                                <div class="item-period">Feature refinements, performance optimisation, data analysis,
+                                    and Business Improvement Plan</div>
+                            </td>
+                            <td>March 2026</td>
+                            <td>1</td>
+                            <td>$1,000.00</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Totals -->
+            <div class="totals-section">
+                <div class="totals-box">
+                    <div class="total-row">
+                        <span class="label">Subtotal</span>
+                        <span class="amount">$2,000.00</span>
+                    </div>
+                    <div class="total-row divider">
+                        <span class="label">GST (10%)</span>
+                        <span class="amount">$200.00</span>
+                    </div>
+                    <div class="total-row grand">
+                        <span class="label">Total Due</span>
+                        <span class="amount">$2,200.00</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Payment -->
+            <div class="payment-section">
+                <div class="payment-title">Payment Terms</div>
+                <div class="payment-detail" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 32px;">
+                    <div>
+                        Payment due by <strong>31 March 2026</strong>. Please remit via bank transfer.<br>
+                        All amounts in Australian Dollars (AUD). GST inclusive total: <strong>$2,200.00</strong>.
+                    </div>
+                    <div style="border-left:1.5px solid rgba(108,92,231,0.15);padding-left:20px;">
+                        <div
+                            style="font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#6C5CE7;font-weight:600;margin-bottom:5px;">
+                            Bank Details</div>
+                        <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:10px;">
+                            <span style="color:#999;">Beneficiary</span><span><strong>Philippe Antoine</strong></span>
+                            <span style="color:#999;">BSB</span><span
+                                style="font-family:'JetBrains Mono',monospace;"><strong>772-772</strong></span>
+                            <span style="color:#999;">Account</span><span
+                                style="font-family:'JetBrains Mono',monospace;"><strong>102316650</strong></span>
+                            <span style="color:#999;">Bank</span><span>Revolut Payments Australia Pty Ltd</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="footer">
+        <span class="footer-accent">Your AI Business Consultant</span> · 5 Galway Avenue, Killarney Heights NSW 2087
+        · Australia
+    </div>
+
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ PAGE 2 -->
+    <div class="page">
+
+        <div class="page2-header">
+            <div class="page2-title">Deliverables Specification</div>
+            <div class="page2-sub">INV-002 — VIE Market — Scope of work delivered February – March 2026</div>
+        </div>
+
+        <div class="deliverables">
+
+            <div class="del-section-title">Deliverable 1 — Live Dashboard Application</div>
+            <p style="font-size:10px;color:#666;margin-bottom:12px;">Cloud-hosted (Vercel), mobile-responsive real-time
+                dashboard connected to Square POS via Supabase with automated hourly data sync. Accessible 24/7 from any
+                device.</p>
+
+            <div class="del-grid">
+
+                <div class="del-card">
+                    <div class="del-card-title"><span class="icon">📊</span> Overview — KPI Cards & Charts</div>
+                    <div class="del-card-desc">12 animated KPI cards with period comparison</div>
+                    <ul>
+                        <li>Net Sales, Gross Sales, Cafe/Retail Net Sales split</li>
+                        <li>Transactions (Cafe/Retail), Customers, Average Sale (Cafe/Retail)</li>
+                        <li>Labour Cost & Labour vs Sales % with Cafe/Retail split</li>
+                        <li>Avg Profit Margin — weighted by sales mix (Cafe/Retail)</li>
+                        <li>Real Profit Margin — after COGS + labour (Cafe/Retail)</li>
+                        <li>Real Profit $ — after COGS + labour</li>
+                        <li>Interactive multi-metric trend chart with moving average</li>
+                        <li>Flexible period selector: today, week, month, quarter, FY, custom</li>
+                    </ul>
+                </div>
+
+                <div class="del-card">
+                    <div class="del-card-title"><span class="icon">👥</span> Members & Loyalty</div>
+                    <div class="del-card-desc">Full member intelligence with loyalty program analytics</div>
+                    <ul>
+                        <li>Member KPIs: active members, revenue %, avg spend, visit frequency</li>
+                        <li>Status classification: Active, Cooling, At Risk, Churned</li>
+                        <li>Per-member: all-time vs 30-day spending, Cafe/Retail split, trend %</li>
+                        <li>Loyalty points tracking: lifetime, redeemed, available balance</li>
+                        <li>Sortable, searchable member table with CSV export</li>
+                        <li>Historical member revenue chart with comparison periods</li>
+                    </ul>
+                </div>
+
+                <div class="del-card">
+                    <div class="del-card-title"><span class="icon">📦</span> Inventory & Stock Intelligence</div>
+                    <div class="del-card-desc">Real-time stock monitoring with predictive reorder alerts</div>
+                    <ul>
+                        <li>Stock Value (GST inc./ex.), Retail Value, Avg Margin</li>
+                        <li>Alerts: Critical, Low, Watch, Overstock, Dead Stock</li>
+                        <li>Per-item: velocity, sold 7/30/90d, days of stock, sell-through %</li>
+                        <li>Multi-filter by category, vendor, alert level</li>
+                        <li>Sortable/searchable table with CSV export</li>
+                    </ul>
+                </div>
+
+                <div class="del-card">
+                    <div class="del-card-title"><span class="icon">👷</span> Staff & Labour</div>
+                    <div class="del-card-desc">Labour cost computation with award-rate compliance</div>
+                    <ul>
+                        <li>Per-staff earnings: weekday, Saturday, Sunday, public holiday rates</li>
+                        <li>Configurable hourly rates editor with historical support</li>
+                        <li>80/20 Barista split (Cafe/Retail labour allocation)</li>
+                        <li>Daily labour cost chart and shift-level breakdown</li>
+                    </ul>
+                </div>
+
+                <div class="del-card">
+                    <div class="del-card-title"><span class="icon">💬</span> SMS Campaigns</div>
+                    <div class="del-card-desc">Campaign-ready infrastructure for member re-engagement</div>
+                    <ul>
+                        <li>Member segmentation by status, spend level, and activity</li>
+                        <li>Campaign creation interface with target audience filters</li>
+                    </ul>
+                </div>
+
+                <div class="del-card">
+                    <div class="del-card-title"><span class="icon">⚙️</span> Settings & Configuration</div>
+                    <div class="del-card-desc">System configuration and category management</div>
+                    <ul>
+                        <li>Cafe vs Retail category classification</li>
+                        <li>Staff rate configuration</li>
+                        <li>System and integration settings</li>
+                    </ul>
+                </div>
+
+            </div>
+
+            <div class="del-section-title">Deliverable 2 — Business Improvement Plan</div>
+
+            <div class="del2-card">
+                <p style="font-size:10px;color:#555;margin-bottom:4px;">Comprehensive data-driven analysis with 6
+                    prioritised actions, delivered as PDF and Markdown.</p>
+                <ul>
+                    <li><strong>Monthly performance analysis</strong> — Net sales, transactions, avg sale, labour cost,
+                        labour %, and Cafe/Retail mix trends (Aug 2025 – Mar 2026)</li>
+                    <li><strong>Profit squeeze diagnosis</strong> — Root cause analysis of labour cost growth outpacing
+                        revenue</li>
+                    <li><strong>6 prioritised actions</strong> — Labour scheduling control ($60-96K/yr impact), average
+                        sale uplift, retail category mix optimisation, member program leverage, dead stock clearance,
+                        weekly performance review cadence</li>
+                    <li><strong>KPI targets</strong> — Measurable targets with timelines (Labour ≤24%, Avg Sale ≥$24,
+                        Real Profit Margin ≥25%)</li>
+                </ul>
+            </div>
+
+        </div>
+
+        <div class="footer">
+            <span class="footer-accent">Your AI Business Consultant</span> · 5 Galway Avenue, Killarney Heights NSW 2087
+            · Australia
+        </div>
+
+    </div>
+
+</body>
+
+</html>

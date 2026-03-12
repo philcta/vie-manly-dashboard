@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Dashboard Deliverables — Specification</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            font-size: 10px;
+            line-height: 1.45;
+            color: #1A1A1A;
+            padding: 36px 44px;
+            max-width: 780px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 18px;
+            font-weight: 700;
+            color: #2D2D2D;
+            margin-bottom: 2px;
+        }
+
+        .subtitle {
+            font-size: 10px;
+            color: #777;
+            margin-bottom: 16px;
+        }
+
+        h2 {
+            font-size: 11px;
+            font-weight: 700;
+            color: #4A5139;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            margin-top: 14px;
+            margin-bottom: 6px;
+            padding-bottom: 3px;
+            border-bottom: 1.5px solid #D4D6CE;
+        }
+
+        .item {
+            margin-bottom: 8px;
+        }
+
+        .item-title {
+            font-size: 10.5px;
+            font-weight: 600;
+            color: #1A1A1A;
+        }
+
+        .item-desc {
+            font-size: 9.5px;
+            color: #555;
+            margin-top: 1px;
+        }
+
+        ul {
+            padding-left: 14px;
+            margin: 2px 0 0 0;
+        }
+
+        li {
+            font-size: 9.5px;
+            color: #555;
+            margin-bottom: 1px;
+        }
+
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px 20px;
+        }
+
+        .footer {
+            margin-top: 18px;
+            padding-top: 8px;
+            border-top: 1px solid #E0E0E0;
+            font-size: 8.5px;
+            color: #999;
+            text-align: center;
+        }
+
+        @media print {
+            body {
+                padding: 24px 30px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Real-Time Business Intelligence Dashboard</h1>
+    <p class="subtitle">Custom-built web application for VIE. MANLY — Delivered March 2026</p>
+
+    <h2>Deliverable 1 — Live Dashboard Application</h2>
+    <p style="font-size:9.5px;color:#555;margin-bottom:8px;">Cloud-hosted (Vercel), mobile-responsive web dashboard
+        connected to Square POS via Supabase, with automated hourly data sync. Accessible 24/7 from any device.</p>
+
+    <div class="two-col">
+
+        <div class="item">
+            <div class="item-title">Overview Page — KPI Cards & Charts</div>
+            <div class="item-desc">12 animated KPI cards with period comparison (prior period, same period last year).
+                Flexible period selector: today, this week/month, last week/month, quarter, financial year (AU), and
+                custom date range.</div>
+            <ul>
+                <li>Net Sales, Gross Sales, Cafe/Retail Net Sales split</li>
+                <li>Transactions (Cafe/Retail), Customers, Average Sale (Cafe/Retail)</li>
+                <li>Labour Cost (Cafe/Retail $), Labour vs Sales % (Cafe/Retail)</li>
+                <li>Avg Profit Margin (weighted by sales mix, Cafe/Retail)</li>
+                <li>Real Profit Margin (after COGS + labour, Cafe/Retail)</li>
+                <li>Real Profit $ (after COGS + labour)</li>
+                <li>Interactive multi-metric chart: Net Sales, Transactions, Customers, Avg Sale, Real Profit %, Labour
+                    % — with 3-month moving average and trend line</li>
+            </ul>
+        </div>
+
+        <div class="item">
+            <div class="item-title">Members & Loyalty Page</div>
+            <div class="item-desc">Full member intelligence with loyalty program analytics.</div>
+            <ul>
+                <li>Member KPIs: active members, revenue %, avg spend, visit frequency</li>
+                <li>Member status classification: Active, Cooling, At Risk, Churned</li>
+                <li>Per-member details: all-time vs 30-day spending, Cafe/Retail split, trend %</li>
+                <li>Loyalty points: lifetime, redeemed, available balance</li>
+                <li>Sortable, searchable member table with CSV export</li>
+                <li>Historical member revenue chart with comparison periods</li>
+            </ul>
+        </div>
+
+        <div class="item">
+            <div class="item-title">Inventory & Stock Intelligence Page</div>
+            <div class="item-desc">Real-time stock monitoring with predictive reorder alerts.</div>
+            <ul>
+                <li>Stock Value (GST inc./ex.), Retail Value, Avg Profit Margin</li>
+                <li>Stock Intelligence panel: Critical, Low, Watch, Overstock, Dead Stock alerts</li>
+                <li>Per-item: on-hand qty, sales velocity, sold 7/30/90d, days of stock, sell-through %</li>
+                <li>Multi-filter: by category, vendor, alert level</li>
+                <li>Full sortable/searchable table with CSV export</li>
+            </ul>
+        </div>
+
+        <div class="item">
+            <div class="item-title">Staff & Labour Page</div>
+            <div class="item-desc">Labour cost computation engine with award-rate compliance.</div>
+            <ul>
+                <li>Per-staff earnings: weekday, Saturday, Sunday, public holiday rates</li>
+                <li>Configurable hourly rates editor with historical rate support</li>
+                <li>80/20 Barista split (Cafe/Retail allocation)</li>
+                <li>Daily labour cost chart and shift-level breakdown</li>
+            </ul>
+        </div>
+
+        <div class="item">
+            <div class="item-title">SMS Campaigns Page</div>
+            <div class="item-desc">Campaign-ready infrastructure for member re-engagement.</div>
+            <ul>
+                <li>Member segmentation by status, spend level, and activity</li>
+                <li>Campaign creation interface with target audience filters</li>
+            </ul>
+        </div>
+
+        <div class="item">
+            <div class="item-title">Settings & Configuration Page</div>
+            <div class="item-desc">Category classification management (Cafe vs Retail mapping), staff rate
+                configuration, and system settings.</div>
+        </div>
+
+    </div>
+
+    <h2>Deliverable 2 — Business Improvement Plan (Report)</h2>
+    <p style="font-size:9.5px;color:#555;margin-bottom:4px;">Comprehensive data-driven analysis with 6 prioritised
+        actions, delivered as PDF and Markdown.</p>
+    <ul>
+        <li><strong>Monthly performance analysis</strong> — Net sales, transactions, avg sale, labour cost, labour %,
+            and Cafe/Retail mix trends (Aug 2025 – Mar 2026)</li>
+        <li><strong>Profit squeeze diagnosis</strong> — Root cause analysis of labour cost growth outpacing revenue</li>
+        <li><strong>6 prioritised actions</strong> — Labour scheduling control ($60-96K/yr impact), average sale uplift,
+            retail category mix optimisation, member program leverage, dead stock clearance, weekly performance review
+            cadence</li>
+        <li><strong>KPI targets</strong> — Measurable targets with timelines (Labour ≤24%, Avg Sale ≥$24, Real Profit
+            Margin ≥25%)</li>
+    </ul>
+
+    <div class="footer">
+        Stack: Next.js · TypeScript · Supabase (PostgreSQL) · Vercel · Square API integration · Recharts · Framer Motion
+    </div>
+
+</body>
+
+</html>

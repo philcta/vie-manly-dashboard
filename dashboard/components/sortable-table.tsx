@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { ChevronUp, ChevronDown, ChevronsUpDown, ChevronRight, ChevronLeft, Search, X } from "lucide-react";
 
 // ── Types ───────────────────────────────────────────────────────
@@ -37,6 +37,53 @@ interface SortableTableProps<T> {
     headerActions?: React.ReactNode;
 }
 
+// ── Debounce hook ───────────────────────────────────────────────
+
+function useDebouncedValue<T>(value: T, delay: number): T {
+    const [debounced, setDebounced] = useState(value);
+    useEffect(() => {
+        const timer = setTimeout(() => setDebounced(value), delay);
+        return () => clearTimeout(timer);
+    }, [value, delay]);
+    return debounced;
+}
+
+// ── Virtualised row rendering ───────────────────────────────────
+
+const ROW_HEIGHT = 36; // px per row
+const OVERSCAN = 10; // extra rows above/below viewport
+
+function useVirtualScroll(containerRef: React.RefObject<HTMLDivElement | null>, totalRows: number) {
+    const [scrollTop, setScrollTop] = useState(0);
+    const [containerHeight, setContainerHeight] = useState(480);
+
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+
+        const obs = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                setContainerHeight(entry.contentRect.height);
+            }
+        });
+        obs.observe(el);
+
+        const handleScroll = () => setScrollTop(el.scrollTop);
+        el.addEventListener("scroll", handleScroll, { passive: true });
+
+        return () => {
+            obs.disconnect();
+            el.removeEventListener("scroll", handleScroll);
+        };
+    }, [containerRef]);
+
+    const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+    const visibleCount = Math.ceil(containerHeight / ROW_HEIGHT) + OVERSCAN * 2;
+    const endIndex = Math.min(totalRows, startIndex + visibleCount);
+
+    return { startIndex, endIndex, totalHeight: totalRows * ROW_HEIGHT };
+}
+
 // ── Component ───────────────────────────────────────────────────
 
 export function SortableTable<T extends Record<string, unknown>>({
@@ -55,6 +102,10 @@ export function SortableTable<T extends Record<string, unknown>>({
     const [searchQuery, setSearchQuery] = useState("");
     const [searchOpen, setSearchOpen] = useState(false);
     const searchInputRef = useRef<HTMLInputElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+    // Debounce search to 150ms — instant feel, stops re-renders mid-typing
+    const debouncedQuery = useDebouncedValue(searchQuery, 150);
 
     // Track which groups are expanded
     const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -71,23 +122,22 @@ export function SortableTable<T extends Record<string, unknown>>({
     // Determine visible columns (filter out collapsed group children)
     const visibleColumns = useMemo(() => {
         return columns.filter((col) => {
-            // No group? Always visible
             if (!col.group) return true;
-            // Group parent? Always visible
             if (col.groupParent) return true;
-            // Group child? Only visible if group is expanded
             return expandedGroups.has(col.group);
         });
     }, [columns, expandedGroups]);
 
-    const handleSort = (key: string) => {
-        if (sortKey === key) {
-            setSortDir(sortDir === "asc" ? "desc" : "asc");
-        } else {
-            setSortKey(key);
+    const handleSort = useCallback((key: string) => {
+        setSortKey(prev => {
+            if (prev === key) {
+                setSortDir(d => d === "asc" ? "desc" : "asc");
+                return prev;
+            }
             setSortDir("desc");
-        }
-    };
+            return key;
+        });
+    }, []);
 
     // Focus search input when opened
     useEffect(() => {
@@ -96,23 +146,28 @@ export function SortableTable<T extends Record<string, unknown>>({
         }
     }, [searchOpen]);
 
-    // Filter by search query
-    const filteredData = useMemo(() => {
-        if (!searchKeys || !searchQuery.trim()) return data;
-
-        const q = searchQuery.trim().toLowerCase();
-        return data.filter((row) =>
-            searchKeys.some((key) => {
-                const col = columns.find((c) => c.key === key);
-                // Use sortValue if available (it returns a string for text columns)
+    // Pre-build search value extractors once (avoid columns.find per row per key)
+    const searchExtractors = useMemo(() => {
+        if (!searchKeys) return [];
+        return searchKeys.map((key) => {
+            const col = columns.find((c) => c.key === key);
+            return (row: T): string => {
                 const rawVal = col?.sortValue
                     ? col.sortValue(row)
                     : (row[key as keyof T] as unknown);
-                const strVal = String(rawVal ?? "").toLowerCase();
-                return strVal.includes(q);
-            })
+                return String(rawVal ?? "").toLowerCase();
+            };
+        });
+    }, [searchKeys, columns]);
+
+    // Filter by search query (uses debounced value)
+    const filteredData = useMemo(() => {
+        if (!searchExtractors.length || !debouncedQuery.trim()) return data;
+        const q = debouncedQuery.trim().toLowerCase();
+        return data.filter((row) =>
+            searchExtractors.some((extract) => extract(row).includes(q))
         );
-    }, [data, searchQuery, searchKeys, columns]);
+    }, [data, debouncedQuery, searchExtractors]);
 
     const sortedData = useMemo(() => {
         const col = columns.find((c) => c.key === sortKey);
@@ -132,6 +187,10 @@ export function SortableTable<T extends Record<string, unknown>>({
             return sortDir === "asc" ? cmp : -cmp;
         });
     }, [filteredData, sortKey, sortDir, columns]);
+
+    // Virtual scroll
+    const { startIndex, endIndex, totalHeight } = useVirtualScroll(scrollContainerRef, sortedData.length);
+    const virtualRows = sortedData.slice(startIndex, endIndex);
 
     const alignClass = (align?: string) => {
         if (align === "right") return "text-right";
@@ -238,7 +297,7 @@ export function SortableTable<T extends Record<string, unknown>>({
             </div>
 
             {/* Table */}
-            <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
+            <div ref={scrollContainerRef} className="overflow-x-auto max-h-[480px] overflow-y-auto">
                 <table className="w-full">
                     <thead className="sticky top-0 z-10">
                         <tr className="bg-[#FAFAF8]">
@@ -284,8 +343,14 @@ export function SortableTable<T extends Record<string, unknown>>({
                         </tr>
                     </thead>
                     <tbody>
-                        {sortedData.map((row, i) => (
-                            <tr key={i} className="border-b border-[#F0F0EE] row-hover">
+                        {/* Virtual scroll spacer (top) */}
+                        {startIndex > 0 && (
+                            <tr style={{ height: startIndex * ROW_HEIGHT }} aria-hidden>
+                                <td colSpan={visibleColumns.length} />
+                            </tr>
+                        )}
+                        {virtualRows.map((row, i) => (
+                            <tr key={startIndex + i} className="border-b border-[#F0F0EE] row-hover" style={{ height: ROW_HEIGHT }}>
                                 {visibleColumns.map((col) => (
                                     <td
                                         key={col.key}
@@ -296,6 +361,12 @@ export function SortableTable<T extends Record<string, unknown>>({
                                 ))}
                             </tr>
                         ))}
+                        {/* Virtual scroll spacer (bottom) */}
+                        {endIndex < sortedData.length && (
+                            <tr style={{ height: (sortedData.length - endIndex) * ROW_HEIGHT }} aria-hidden>
+                                <td colSpan={visibleColumns.length} />
+                            </tr>
+                        )}
                         {sortedData.length === 0 && (
                             <tr>
                                 <td
