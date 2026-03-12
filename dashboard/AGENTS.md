@@ -49,12 +49,26 @@
 - **Labour is split** Cafe/Retail using `staff_shifts.business_side` (Bar → Cafe, Retail → Retail, Overhead → Cafe)
 - **Barista split**: 80/20 rule — barista labour is 80% Cafe, 20% Retail
 
-### Data Pipeline
-- Square API → `transactions` table (hourly sync)
-- `transactions` → aggregated into `daily_store_stats` and `daily_item_summary`
+### Data Pipeline — `scheduled_sync.py` (every 2 hours)
+
+The automated sync runs 6 phases in sequence:
+
+| Phase | Script/Module | What it does |
+|---|---|---|
+| 1. Smart Backfill | `scripts/smart_backfill.py` | Detects & fills missing date gaps (last 14 days) |
+| 2. Latest Sync | `services/square_sync.py` | Pulls last 4h of transactions + inventory + customers from Square API |
+| 3. Stock Intelligence | `scripts/sync_inventory_intelligence.py` | Calculates sales velocity, reorder alerts (90 days) |
+| 4. Spending Patterns | Supabase RPC | Refreshes `mv_member_spending_patterns` materialized view |
+| 5. Loyalty Sync | `scripts/sync_loyalty.py` + `sync_loyalty_events.py` | Pulls all loyalty balances (2,836 accounts) + events (25K+) from Square |
+| 6. Member Stats | `scripts/backfill_member_analytics.py` | Recalculates `member_daily_stats` for ALL members from transactions |
+
+**Key derived tables**:
+- `transactions` → aggregated into `daily_store_stats` (member/non-member split) and `daily_item_summary`
+- `transactions` → `member_daily_stats` (cumulative visits, spend, 30d trends per member)
 - `staff_shifts` populated from Square Team API
-- `inventory` snapshots from Square inventory
-- `inventory_intelligence` pre-computed nightly (velocity, reorder alerts)
+- `inventory` snapshots from Square, enriched into `inventory_intelligence`
+- `member_loyalty` synced from Square Loyalty API (balances + lifetime points)
+- `loyalty_events` synced from Square Loyalty Events API (full ledger: accumulate, redeem, create_reward)
 
 ## Known Gotchas & Past Bugs
 
@@ -64,6 +78,9 @@
 4. **`is_closed` flag**: `daily_store_stats.is_closed = true` marks pre-opening dates and closed days. ALL RPCs and queries must filter this.
 5. **Timezone**: All dates are Sydney local time (AEST/AEDT). Square API returns UTC — conversion happens at ingest.
 6. **Financial Year**: Australian FY is July 1 – June 30.
+7. **`member_daily_stats` must be recalculated**: This table is NOT incrementally updated — it requires a full rebuild from `transactions` (Phase 6 of scheduled_sync). Before 2026-03-12, it was only populated by manual one-off backfills. Gap incident: 228 members had stale data for 4 days (Mar 9–12). Now automated.
+8. **`loyalty_events` upsert needs `on_conflict=event_id`**: Without this, re-syncing causes duplicate key errors (23505). Fixed 2026-03-12.
+9. **Old Square account customer IDs**: The store had a previous owner with a different Square account. ~1,664 old customer IDs exist in transactions but have no matching `member_daily_stats`. These are reconciled via `customer_id_mapping` table (231 mappings). The old IDs are expected — not a bug.
 
 ## Performance Optimizations Done
 
@@ -76,7 +93,17 @@
 
 ## Session Log (Most Recent First)
 
-### 2026-03-12 — Performance, Invoice, Margin Fix
+### 2026-03-12 (evening) — Member Data Gap Fix + Automated Sync Pipeline
+- **Investigated missing member visits**: Grace Loke's Mar 10 visit was in `transactions` but missing from `member_daily_stats` and `loyalty_events`
+- **Root cause**: `member_daily_stats` was never part of the automated sync — only populated by manual one-off backfills
+- **Impact**: 228 members had stale visit/spend data for 4 days (Mar 9–12)
+- **Fix**: Added Phase 5 (loyalty sync) and Phase 6 (member_daily_stats recalculation) to `scheduled_sync.py`
+- Refactored `sync_loyalty.py`, `sync_loyalty_events.py`, `backfill_member_analytics.py` into importable modules
+- Fixed `loyalty_events` upsert: added `on_conflict=event_id` to prevent duplicate key errors
+- Full backfill completed: 55,605 member_daily_stats rows + 25,538 loyalty events + 2,836 loyalty balances
+- Pushed to git: commit `6f1cb48`
+
+### 2026-03-12 (morning) — Performance, Invoice, Margin Fix
 - Fixed Real Profit Margin formula: now uses weighted `effectiveMargin` (not unweighted `overallMargin`)
 - Real Profit Margin subtitle shows per-side breakdown: Cafe: 40.3% · Retail: 18.2%
 - Added CSV export to Inventory Stock Levels table

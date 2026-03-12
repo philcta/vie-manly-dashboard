@@ -50,16 +50,18 @@ dashboard/
 | Table | Rows (~) | Purpose |
 |---|---|---|
 | `transactions` | 307K | Raw Square transactions |
-| `daily_store_stats` | 795 | Pre-aggregated daily KPIs (incl. member splits) |
+| `daily_store_stats` | 796 | Pre-aggregated daily KPIs (incl. member splits) |
 | `daily_item_summary` | 202K | Per-item daily sales aggregation |
-| `member_daily_stats` | 50K | Per-member daily stats |
-| `loyalty_events` | 24K | Loyalty point events ledger |
+| `member_daily_stats` | 55.6K | Per-member cumulative daily stats (visits, spend, 30d trends) |
+| `loyalty_events` | 25.5K | Loyalty point events ledger (accumulate, redeem, create_reward) |
 | `inventory` | 581K | Inventory snapshots (multiple dates) |
 | `inventory_intelligence` | 4.2K | Pre-computed sales velocity, reorder alerts |
 | `members` | 2.8K | Member profiles (Square synced) |
-| `member_loyalty` | 2.8K | Loyalty balances |
+| `member_loyalty` | 2.8K | Loyalty balances (synced from Square every 2h) |
 | `staff_shifts` | 1.3K | Staff shift records with labour costs |
 | `category_mappings` | 113 | Category → Cafe/Retail side mapping |
+| `customer_id_mapping` | 231 | Old → new Square customer ID mappings (store ownership transfer) |
+| `sync_log` | ~10 | Audit trail of scheduled sync runs |
 
 ## Key Supabase RPCs
 | RPC | Purpose |
@@ -90,6 +92,21 @@ See `docs/formulas_reference.md` for complete reference. Key ones:
 3. **Pre-aggregated tables**: `daily_store_stats` and `daily_item_summary` avoid scanning raw transactions
 4. **Composite indexes**: `idx_dis_item_date`, `idx_inv_source_product`, plus per-table date/customer indexes
 5. **is_closed filtering**: All RPCs exclude pre-opening data (before Aug 2025) via `is_closed` flag
+
+## Automated Sync Pipeline — `scripts/scheduled_sync.py`
+
+Runs every 2 hours (Task Scheduler / GitHub Actions).
+
+| Phase | Script | What it does |
+|---|---|---|
+| 1 | `scripts/smart_backfill.py` | Detect & fill missing date gaps (last 14 days) |
+| 2 | `services/square_sync.py` (`run_full_sync`) | Pull last 4h transactions + inventory + customers |
+| 3 | `scripts/sync_inventory_intelligence.py` | Sales velocity, reorder alerts (90 day window) |
+| 4 | Supabase RPC `refresh_member_spending_patterns` | Refresh materialized view |
+| 5 | `scripts/sync_loyalty.py` + `sync_loyalty_events.py` | Sync loyalty balances + full event ledger from Square |
+| 6 | `scripts/backfill_member_analytics.py` | Recalculate `member_daily_stats` from all transactions |
+
+CLI flags: `--skip-backfill`, `--skip-latest`, `--skip-loyalty`, `--skip-member-stats`, `--lookback N`
 
 ## Date Range System
 - `resolvePeriodRange(period, customStart, customEnd)` → `{startDate, endDate}`
