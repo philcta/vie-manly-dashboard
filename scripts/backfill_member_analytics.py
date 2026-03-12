@@ -2,10 +2,9 @@
 backfill_member_analytics.py — Populate member_daily_stats and daily_store_stats
 from existing transactions.
 
-Run once after creating the tables, then square_sync keeps them updated.
-
-Usage:
-    python scripts/backfill_member_analytics.py
+Can be run standalone OR imported by scheduled_sync:
+    python scripts/backfill_member_analytics.py          # Full backfill
+    from scripts.backfill_member_analytics import run_member_daily_stats_update  # Import
 """
 import sys, os, json, urllib.request, time
 sys.stdout.reconfigure(encoding='utf-8')
@@ -15,7 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 SUPA_URL = os.getenv("SUPABASE_URL")
 SUPA_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -135,7 +134,6 @@ def build_member_daily_stats(transactions):
                 
                 # Calculate 30d window
                 cutoff_30d = datetime.strptime(date, "%Y-%m-%d")
-                from datetime import timedelta
                 cutoff_30d_str = (cutoff_30d - timedelta(days=30)).strftime("%Y-%m-%d")
                 visits_30d = sum(1 for d in recent_visits if d >= cutoff_30d_str)
                 spend_30d = sum(s for d, s in zip(recent_visits, recent_spend) if d >= cutoff_30d_str)
@@ -258,6 +256,46 @@ def upsert_batch(table, records, conflict_cols, label=""):
         total += len(batch)
         print(f"  {label} batch {i//batch_size + 1}: {len(batch)} rows → HTTP {status}")
     return total
+
+
+def run_member_daily_stats_update():
+    """
+    Callable entry point for scheduled_sync.
+    Loads ALL transactions, rebuilds member_daily_stats from scratch.
+    
+    Returns:
+        dict with status and counts
+    """
+    t0 = time.time()
+    result = {
+        "status": "success",
+        "member_daily_stats": 0,
+    }
+    
+    try:
+        # Load all transactions
+        transactions = load_all_transactions()
+        
+        # Build and upsert member_daily_stats
+        member_stats = build_member_daily_stats(transactions)
+        if member_stats:
+            upserted = upsert_batch(
+                "member_daily_stats",
+                member_stats,
+                "square_customer_id,date",
+                label="member_daily_stats"
+            )
+            result["member_daily_stats"] = upserted
+        
+        elapsed = time.time() - t0
+        print(f"  ✅ member_daily_stats update complete: {result['member_daily_stats']} rows in {elapsed:.1f}s")
+        
+    except Exception as e:
+        result["status"] = "error"
+        result["error"] = str(e)
+        print(f"  ❌ member_daily_stats update failed: {e}")
+    
+    return result
 
 
 def main():
