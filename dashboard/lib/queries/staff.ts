@@ -242,45 +242,47 @@ export function pivotRates(rates: StaffRate[]) {
  * Anchored to March 9, 2026 as the first update Monday.
  * Every 2 weeks from that date, we show the PREVIOUS completed 2-week period.
  *
+ * All arithmetic is done in UTC to avoid DST shifts (Australian AEDT→AEST
+ * transition can cause 86400000ms to land on the wrong calendar day).
+ *
  * @returns { periodStart, periodEnd, nextUpdate } - all as YYYY-MM-DD strings
  */
 export function getPayPeriod(today: Date = new Date()) {
-    // Reference Monday: March 9, 2026 (UTC)
-    const REF_MONDAY = new Date("2026-03-09T00:00:00");
+    // Work entirely in UTC to avoid DST issues
+    const REF_MONDAY = Date.UTC(2026, 2, 9); // March 9, 2026 00:00 UTC
     const MS_PER_DAY = 86400000;
     const PERIOD_DAYS = 14;
 
-    const daysSinceRef = Math.floor(
-        (today.getTime() - REF_MONDAY.getTime()) / MS_PER_DAY
-    );
+    // Convert 'today' to UTC midnight for consistent day calculation
+    const todayUTC = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+
+    const daysSinceRef = Math.floor((todayUTC - REF_MONDAY) / MS_PER_DAY);
 
     // Which 2-week cycle are we in?
     const periodIndex = Math.max(0, Math.floor(daysSinceRef / PERIOD_DAYS));
 
-    // The update Monday for this cycle
-    const updateMonday = new Date(
-        REF_MONDAY.getTime() + periodIndex * PERIOD_DAYS * MS_PER_DAY
-    );
+    // The update Monday for this cycle (UTC)
+    const updateMondayUTC = REF_MONDAY + periodIndex * PERIOD_DAYS * MS_PER_DAY;
 
     // The pay period is the 2 weeks BEFORE the update Monday
-    const periodStart = new Date(updateMonday.getTime() - PERIOD_DAYS * MS_PER_DAY);
-    const periodEnd = new Date(updateMonday.getTime() - MS_PER_DAY);
+    const periodStartUTC = updateMondayUTC - PERIOD_DAYS * MS_PER_DAY;
+    const periodEndUTC = updateMondayUTC - MS_PER_DAY;
 
     // Next update Monday
-    const nextUpdate = new Date(
-        updateMonday.getTime() + PERIOD_DAYS * MS_PER_DAY
-    );
+    const nextUpdateUTC = updateMondayUTC + PERIOD_DAYS * MS_PER_DAY;
 
-    const fmt = (d: Date) => {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, "0");
-        const day = String(d.getDate()).padStart(2, "0");
+    // Format UTC timestamp as YYYY-MM-DD (no DST conversion)
+    const fmt = (utcMs: number) => {
+        const d = new Date(utcMs);
+        const y = d.getUTCFullYear();
+        const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(d.getUTCDate()).padStart(2, "0");
         return `${y}-${m}-${day}`;
     };
     return {
-        periodStart: fmt(periodStart),
-        periodEnd: fmt(periodEnd),
-        nextUpdate: fmt(nextUpdate),
+        periodStart: fmt(periodStartUTC),
+        periodEnd: fmt(periodEndUTC),
+        nextUpdate: fmt(nextUpdateUTC),
     };
 }
 
