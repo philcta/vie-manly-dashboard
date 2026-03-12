@@ -6,7 +6,8 @@ import KpiCard from "@/components/kpi-card";
 import { SortableTable, type ColumnDef } from "@/components/sortable-table";
 import { supabase } from "@/lib/supabase";
 import { formatCurrency, formatPercent, formatNumber } from "@/lib/format";
-import { ChevronDown, X, Filter, AlertTriangle, TrendingDown, Package, Clock, ShoppingCart } from "lucide-react";
+import { ChevronDown, X, Filter, AlertTriangle, TrendingDown, Package, Clock, ShoppingCart, Download } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 interface InventoryItem {
     product: string;
@@ -445,6 +446,54 @@ export default function InventoryPage() {
         },
     ];
 
+    // ── CSV export helper ───────────────────────────────────────
+    const exportInventoryCSV = (data: InventoryItem[]) => {
+        const headers = [
+            "Product", "Category", "SKU", "Vendor", "On Hand", "Unit Cost",
+            "Retail Price", "Margin %", "Velocity (units/day)", "Sold 7d",
+            "Sold 30d", "Sold 90d", "Revenue 30d", "Days of Stock",
+            "Sell Through %", "Alert", "Last Sold", "Last Received",
+        ];
+        const rows = data.map((r) => [
+            r.product,
+            r.category,
+            r.sku || "",
+            r.defaultVendor || "",
+            r.qty,
+            r.cost.toFixed(2),
+            r.price.toFixed(2),
+            r.actualProfit.toFixed(1),
+            r.salesVelocity.toFixed(2),
+            r.sold7d,
+            r.sold30d,
+            r.sold90d,
+            r.revenue30d.toFixed(2),
+            r.daysOfStock >= 9999 ? "" : Math.round(r.daysOfStock),
+            r.sellThrough.toFixed(1),
+            r.reorderAlert,
+            r.lastSoldDate || "",
+            r.lastReceivedDate || "",
+        ]);
+        const csvContent = [
+            headers.join(","),
+            ...rows.map((row) =>
+                row.map((val) => {
+                    const str = String(val);
+                    return str.includes(",") || str.includes('"') || str.includes("\n")
+                        ? `"${str.replace(/"/g, '""')}"`
+                        : str;
+                }).join(",")
+            ),
+        ].join("\n");
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `inventory_export_${new Date().toISOString().slice(0, 10)}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+    };
+
     // Compute filtered data
     const filteredItems = (() => {
         let filtered = items;
@@ -586,6 +635,20 @@ export default function InventoryPage() {
                             defaultSortDir="asc"
                             searchKeys={["product", "category", "sku", "defaultVendor"]}
                             searchPlaceholder="Search product, category, SKU or vendor..."
+                            headerActions={
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <button
+                                            onClick={() => exportInventoryCSV(filteredItems)}
+                                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                                        >
+                                            <Download size={13} />
+                                            CSV
+                                        </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" sideOffset={6}>Export filtered list as CSV</TooltipContent>
+                                </Tooltip>
+                            }
                         />
                     </div>
                 </>
