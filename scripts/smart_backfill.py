@@ -236,14 +236,14 @@ def fetch_orders_for_date(date_str, catalog_map):
             "query": {
                 "filter": {
                     "date_time_filter": {
-                        "created_at": {
+                        "closed_at": {
                             "start_at": start_dt.isoformat(),
                             "end_at": end_dt.isoformat(),
                         }
                     },
                     "state_filter": {"states": ["COMPLETED"]},
                 },
-                "sort": {"sort_field": "CREATED_AT", "sort_order": "ASC"},
+                "sort": {"sort_field": "CLOSED_AT", "sort_order": "ASC"},
             },
             "limit": 500,
         }
@@ -270,7 +270,7 @@ def fetch_orders_for_date(date_str, catalog_map):
 
     for order in all_orders:
         order_id = order.get("id", "")
-        created_at = order.get("created_at", "")
+        created_at = order.get("closed_at") or order.get("created_at", "")
         customer_id = order.get("customer_id", "")
 
         # Parse tenders
@@ -284,7 +284,7 @@ def fetch_orders_for_date(date_str, catalog_map):
                 card_brand = card.get("card_brand", "")
                 pan_suffix = card.get("last_4", "")
 
-        for item in order.get("line_items", []):
+        for idx, item in enumerate(order.get("line_items", [])):
             item_name = item.get("name", "")
             qty = float(item.get("quantity", "0"))
 
@@ -315,7 +315,7 @@ def fetch_orders_for_date(date_str, catalog_map):
             else:
                 unmatched += 1
 
-            # Parse datetime to Sydney
+            # Parse datetime to Sydney (use closed_at to match Square dashboard)
             try:
                 dt_utc = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
                 dt_local = dt_utc.astimezone(SYDNEY_TZ)
@@ -327,13 +327,9 @@ def fetch_orders_for_date(date_str, catalog_map):
                 local_time = ""
                 local_datetime = ""
 
-            # Build row_key for dedup
-            base_parts = [
-                order_id, local_datetime, display_name, str(net_sales),
-                str(gross_sales), str(discounts), str(qty), customer_id,
-                mod_str, str(tax), card_brand, pan_suffix,
-            ]
-            base_key = "||".join(base_parts)
+            # Build row_key for dedup — MUST match rebuild_from_square.py format
+            # Format: "{order_id}-LI-{line_item_index}"
+            row_key = f"{order_id}-LI-{idx}"
 
             rows.append({
                 "transaction_id": order_id,
@@ -352,7 +348,7 @@ def fetch_orders_for_date(date_str, catalog_map):
                 "card_brand": card_brand,
                 "pan_suffix": pan_suffix,
                 "modifiers_applied": mod_str,
-                "row_key": base_key,
+                "row_key": row_key,
             })
 
     # Deduplicate by row_key

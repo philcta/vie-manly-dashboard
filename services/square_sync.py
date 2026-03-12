@@ -248,7 +248,7 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
 
         # Parse line items
         line_items = order.line_items or []
-        for item in line_items:
+        for idx, item in enumerate(line_items):
             item_name = item.name or ""
             qty = float(item.quantity or "0")
 
@@ -294,6 +294,9 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
                 time_str = ""
                 datetime_str = closed_at
 
+            # Build deterministic row_key — MUST match rebuild_from_square.py format
+            row_key = f"{order_id}-LI-{idx}"
+
             rows.append({
                 "Datetime": datetime_str,
                 "Category": category,
@@ -311,6 +314,7 @@ def sync_transactions(hours_back: int = 2, start_from: Optional[datetime] = None
                 "Time": time_str,
                 "Time Zone": "Australia/Sydney",
                 "Modifiers Applied": modifiers_str,
+                "__row_key": row_key,
             })
 
     df = pd.DataFrame(rows)
@@ -810,29 +814,8 @@ def run_full_sync(hours_back: int = 2) -> dict:
         if not tx_df.empty:
             tx_df = enrich_transaction_categories(tx_df)
 
-            # Build row_key for deduplication using stable hash
-            import hashlib
-            base_cols = [
-                "Transaction ID", "Datetime", "Item", "Net Sales",
-                "Gross Sales", "Discounts", "Qty", "Customer ID",
-                "Modifiers Applied", "Tax", "Card Brand", "PAN Suffix"
-            ]
-            for c in base_cols:
-                if c not in tx_df.columns:
-                    tx_df[c] = ""
-
-            tx_df["__base"] = tx_df[base_cols].astype(str).agg("||".join, axis=1)
-            # Use stable cumcount within each order (sorted by item+modifiers
-            # for deterministic ordering regardless of API fetch order)
-            tx_df = tx_df.sort_values(["Transaction ID", "Item", "Modifiers Applied", "Datetime"])
-            tx_df["__dup_idx"] = tx_df.groupby(["Transaction ID", "__base"]).cumcount()
-            tx_df["__row_key"] = tx_df.apply(
-                lambda r: hashlib.md5(
-                    (r["__base"] + "||" + str(r["__dup_idx"])).encode()
-                ).hexdigest(),
-                axis=1,
-            )
-            tx_df = tx_df.drop(columns=["__base", "__dup_idx"])
+            # row_key is already set in sync_transactions() as __row_key
+            # using deterministic format: {order_id}-LI-{idx}
 
             results["transactions"] = upsert_transactions(tx_df)
             
@@ -948,26 +931,8 @@ def run_smart_sync() -> dict:
         if not tx_df.empty:
             tx_df = enrich_transaction_categories(tx_df)
 
-            import hashlib
-            base_cols = [
-                "Transaction ID", "Datetime", "Item", "Net Sales",
-                "Gross Sales", "Discounts", "Qty", "Customer ID",
-                "Modifiers Applied", "Tax", "Card Brand", "PAN Suffix"
-            ]
-            for c in base_cols:
-                if c not in tx_df.columns:
-                    tx_df[c] = ""
-
-            tx_df["__base"] = tx_df[base_cols].astype(str).agg("||".join, axis=1)
-            tx_df = tx_df.sort_values(["Transaction ID", "Item", "Modifiers Applied", "Datetime"])
-            tx_df["__dup_idx"] = tx_df.groupby(["Transaction ID", "__base"]).cumcount()
-            tx_df["__row_key"] = tx_df.apply(
-                lambda r: hashlib.md5(
-                    (r["__base"] + "||" + str(r["__dup_idx"])).encode()
-                ).hexdigest(),
-                axis=1,
-            )
-            tx_df = tx_df.drop(columns=["__base", "__dup_idx"])
+            # row_key is already set in sync_transactions() as __row_key
+            # using deterministic format: {order_id}-LI-{idx}
 
             results["transactions"] = upsert_transactions(tx_df)
             
