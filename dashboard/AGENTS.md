@@ -1,7 +1,7 @@
 # AGENTS.md — VIE. MANLY Dashboard Project
 
 > **This file is the project brain. Read it first in every new conversation.**
-> Last updated: 2026-03-12
+> Last updated: 2026-03-13
 
 ## Identity
 
@@ -74,13 +74,15 @@ The automated sync runs 6 phases in sequence:
 
 1. **`business_side` values**: Staff shifts use "Bar" (not "Cafe"), "Retail", "Overhead". Code maps Bar+Overhead → Cafe.
 2. **Function overloading**: `get_category_daily` had a duplicate `(text, text)` overload causing PostgREST 300 errors. Fixed by dropping old overload.
-3. **Duplicate transactions**: Square API sync can produce duplicates (happened 2026-03-11 — 465 rows). Dedup key: `(transaction_id, item, qty, net_sales, date)`.
+3. **Duplicate transactions (FIXED 2026-03-13)**: Root cause was 3 scripts generating `row_key` in incompatible formats: `rebuild_from_square.py` used `{order_id}-LI-{idx}`, `smart_backfill.py` used plain concatenation, `square_sync.py` used MD5 hash. All three now use the deterministic `{order_id}-LI-{idx}` format. Also fixed `smart_backfill.py` to use `closed_at` instead of `created_at` for consistency.
 4. **`is_closed` flag**: `daily_store_stats.is_closed = true` marks pre-opening dates and closed days. ALL RPCs and queries must filter this.
 5. **Timezone**: All dates are Sydney local time (AEST/AEDT). Square API returns UTC — conversion happens at ingest.
 6. **Financial Year**: Australian FY is July 1 – June 30.
 7. **`member_daily_stats` must be recalculated**: This table is NOT incrementally updated — it requires a full rebuild from `transactions` (Phase 6 of scheduled_sync). Before 2026-03-12, it was only populated by manual one-off backfills. Gap incident: 228 members had stale data for 4 days (Mar 9–12). Now automated.
 8. **`loyalty_events` upsert needs `on_conflict=event_id`**: Without this, re-syncing causes duplicate key errors (23505). Fixed 2026-03-12.
-9. **Old Square account customer IDs**: The store had a previous owner with a different Square account. ~1,664 old customer IDs exist in transactions but have no matching `member_daily_stats`. These are reconciled via `customer_id_mapping` table (231 mappings). The old IDs are expected — not a bug.
+9. **Staff pay period dates**: `getPayPeriod()` in `lib/queries/staff.ts` must use UTC-only arithmetic (`Date.UTC()`, `getUTCDate()` etc). Using `toISOString()` or local-time ms arithmetic causes dates to shift by 1 day in Australian timezone (UTC+11). Also vulnerable to DST transitions if using `86400000ms` with local time.
+10. **RLS enabled on all tables (2026-03-13)**: Row Level Security is now active. Dashboard (anon key) has read-only access to most tables. Write access is only granted on `staff_rates` (rate editor) and `category_mappings` (side assignment). Python scripts use `service_role` key which bypasses RLS. SQL policies are in `sql/enable_rls.sql`.
+11. **Old Square account customer IDs**: The store had a previous owner with a different Square account. ~1,664 old customer IDs exist in transactions but have no matching `member_daily_stats`. These are reconciled via `customer_id_mapping` table (231 mappings). The old IDs are expected — not a bug.
 
 ## Performance Optimizations Done
 
@@ -92,6 +94,17 @@ The automated sync runs 6 phases in sequence:
 6. **Materialized views**: `mv_member_spending_patterns` for expensive spending pattern queries
 
 ## Session Log (Most Recent First)
+
+### 2026-03-13 - Duplicate Transaction Fix + Staff Pay Period + RLS Security
+- **Root cause of duplicate transactions identified and fixed**:
+  - 3 scripts (`rebuild_from_square.py`, `smart_backfill.py`, `square_sync.py`) each generated `row_key` in different formats
+  - When `scheduled_sync.py` ran Phase 1 + Phase 2, same transactions got inserted twice with different keys
+  - March 11: ~1.3x inflation ($6,255 dashboard vs $4,832 Square). March 12: ~2x ($10,625 vs $5,376)
+  - Fix: Aligned all 3 scripts to use `{order_id}-LI-{idx}` format. Also fixed `smart_backfill.py` to use `closed_at` instead of `created_at`
+- **Cleaned duplicate data**: Deleted 572 excess rows (1,575 → 1,003) for March 11-13, recalculated daily summaries
+- **Staff pay period off by 1 day**: `getPayPeriod()` used `toISOString()` which converts to UTC before formatting — in UTC+11, this shifts dates back 1 day. Fixed with UTC-only arithmetic (`Date.UTC()` + `getUTC*()` methods) to be DST-proof
+- **Enabled Row Level Security**: All Supabase tables now have RLS. Anon key = read-only (except `staff_rates` and `category_mappings`). Script saved as `sql/enable_rls.sql`
+- Pushed commits: `02c46b5` (dup fix), `1424262` (pay period), `d9ea50b` (UTC DST), `7157d77` (RLS)
 
 ### 2026-03-12 (evening) — Member Data Gap Fix + Automated Sync Pipeline
 - **Investigated missing member visits**: Grace Loke's Mar 10 visit was in `transactions` but missing from `member_daily_stats` and `loyalty_events`

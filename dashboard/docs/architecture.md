@@ -135,3 +135,39 @@ git add -A && git commit -m "description" && git push origin master
 ## Git Repository
 - Remote: `origin` → GitHub → Vercel auto-deploy
 - Branch: `master`
+
+## Transaction Deduplication — row_key
+
+All scripts that insert transactions MUST use the same ow_key format:
+- **Format**: {order_id}-LI-{line_item_index} (e.g., Abc123XYZ-LI-0)
+- **Upsert**: on_conflict=row_key with esolution=merge-duplicates
+- **Order datetime**: Always use closed_at (not created_at) from Square API — matches Square dashboard's "Bills Closed" logic
+
+Scripts that insert transactions:
+| Script | row_key source | Square API filter |
+|---|---|---|
+| scripts/rebuild_from_square.py | {order_id}-LI-{idx} | closed_at |
+| scripts/smart_backfill.py | {order_id}-LI-{idx} | closed_at |
+| services/square_sync.py | {order_id}-LI-{idx} (set in sync_transactions()) | closed_at |
+
+**CRITICAL**: If you add a new script that inserts transactions, it MUST use this exact format or duplicates will occur.
+
+## Security — Row Level Security (RLS)
+
+All tables have RLS enabled (see sql/enable_rls.sql):
+- **Anon key** (dashboard): Read-only on all tables. Write access only on staff_rates and category_mappings.
+- **Service role key** (Python scripts): Full access — bypasses RLS entirely.
+- **Views**: member_sms_history and sms_campaign_summary are SECURITY DEFINER (expected).
+
+## Staff Pay Period — getPayPeriod()
+
+Biweekly pay period calculator in lib/queries/staff.ts:
+- Anchored to March 9, 2026 as first update Monday
+- All arithmetic uses UTC (Date.UTC(), getUTC*()) to avoid DST issues
+- Never use 	oISOString() for date formatting in Australian timezone (shifts dates back 1 day)
+
+## Utility Scripts
+| Script | Purpose |
+|---|---|
+| scripts/fix_duplicates.py | One-shot cleanup: delete & re-sync transactions for a date range |
+| scripts/rebuild_from_square.py | Full rebuild of transactions table from Square API |
