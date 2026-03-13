@@ -34,6 +34,7 @@
 | `components/sortable-table.tsx` | Shared table component with debounced search + virtual scroll |
 | `lib/queries/overview.ts` | All Supabase queries for the overview page |
 | `lib/dates.ts` | Period/comparison date range resolution |
+| `docs/conversation_history.md` | Maps all past conversation IDs to topics and dates |
 
 ## Business Concepts
 

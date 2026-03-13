@@ -294,7 +294,7 @@
         /* ── Payment terms ────────────────────────────────────── */
         .payment-section {
             margin-top: 28px;
-            padding: 20px 24px;
+            padding: 24px 28px;
             background: var(--accent-bg);
             border-radius: 12px;
             border: 1px solid rgba(108, 92, 231, 0.1);
@@ -302,20 +302,75 @@
 
         .payment-title {
             font-family: 'Space Grotesk', sans-serif;
-            font-size: 11px;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
             font-weight: 600;
             color: var(--accent);
-            margin-bottom: 6px;
+            margin-bottom: 14px;
         }
 
-        .payment-detail {
-            font-size: 10px;
+        .payment-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0 32px;
+            align-items: start;
+        }
+
+        .payment-terms-col {
+            font-family: 'Inter', sans-serif;
+            font-size: 10.5px;
             color: var(--text-secondary);
-            line-height: 1.7;
+            line-height: 1.8;
         }
 
-        .payment-detail strong {
+        .payment-terms-col strong {
             color: var(--text);
+            font-weight: 600;
+        }
+
+        .bank-col {
+            border-left: 1.5px solid rgba(108, 92, 231, 0.15);
+            padding-left: 24px;
+        }
+
+        .bank-label {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: var(--accent);
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .bank-grid {
+            display: grid;
+            grid-template-columns: 82px 1fr;
+            gap: 6px 0;
+            font-family: 'Inter', sans-serif;
+            font-size: 10.5px;
+            line-height: 1.5;
+        }
+
+        .bank-grid .field-label {
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .bank-grid .field-value {
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        .bank-grid .field-value.mono {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10.5px;
+        }
+
+        .bank-grid .field-value.regular {
+            font-weight: 400;
+            color: var(--text-secondary);
         }
 
         /* ── Page 2: Deliverables ─────────────────────────────── */
@@ -585,22 +640,24 @@
             <!-- Payment -->
             <div class="payment-section">
                 <div class="payment-title">Payment Terms</div>
-                <div class="payment-detail" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 32px;">
-                    <div>
-                        Payment due by <strong>31 March 2026</strong>. Please remit via bank transfer.<br>
-                        All amounts in Australian Dollars (AUD). GST inclusive total: <strong>$2,200.00</strong>.
+                <div class="payment-grid">
+                    <div class="payment-terms-col">
+                        Payment due by <strong>31 March 2026</strong>.<br>
+                        Please remit via bank transfer.<br>
+                        All amounts in Australian Dollars (AUD).<br>
+                        GST inclusive total: <strong>$2,200.00</strong>
                     </div>
-                    <div style="border-left:1.5px solid rgba(108,92,231,0.15);padding-left:20px;">
-                        <div
-                            style="font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#6C5CE7;font-weight:600;margin-bottom:5px;">
-                            Bank Details</div>
-                        <div style="display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:10px;">
-                            <span style="color:#999;">Beneficiary</span><span><strong>Philippe Antoine</strong></span>
-                            <span style="color:#999;">BSB</span><span
-                                style="font-family:'JetBrains Mono',monospace;"><strong>772-772</strong></span>
-                            <span style="color:#999;">Account</span><span
-                                style="font-family:'JetBrains Mono',monospace;"><strong>102316650</strong></span>
-                            <span style="color:#999;">Bank</span><span>Revolut Payments Australia Pty Ltd</span>
+                    <div class="bank-col">
+                        <div class="bank-label">Bank Details</div>
+                        <div class="bank-grid">
+                            <span class="field-label">Beneficiary</span>
+                            <span class="field-value">Philippe Antoine</span>
+                            <span class="field-label">BSB</span>
+                            <span class="field-value mono">772-772</span>
+                            <span class="field-label">Account</span>
+                            <span class="field-value mono">102316650</span>
+                            <span class="field-label">Bank</span>
+                            <span class="field-value regular">Revolut Payments Australia Pty Ltd</span>
                         </div>
                     </div>
                 </div>
