@@ -186,10 +186,14 @@ Your role:
 - When data is missing or insufficient, say so honestly
 
 Formatting:
-- Use markdown for structure
+- Use markdown for structure (headings, bold, bullet points)
 - Bold key metrics and recommendations
 - Use bullet points for lists
 - Keep responses focused and under 300 words unless asked for deep analysis
+- NEVER use LaTeX, MathJax, or math notation (no \\frac, \\text, \\times, \\left, \\right, \\[ \\] etc.)
+- For calculations, write them in plain text like: "Labour % = $4,746 / $30,624 × 100 = 15.5%"
+- Use dollar signs for currency ($1,234) and % for percentages (15.5%)
+- Use simple tables with pipes (|) when comparing data
 `;
 
 // ── Route handler ────────────────────────────────────────────────────
