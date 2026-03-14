@@ -14,6 +14,7 @@ import {
     ChevronDown,
     Home,
     FileText,
+    Minus,
 } from "lucide-react";
 
 function generateSessionId() {
@@ -491,10 +492,32 @@ export default function AiCoachPanel() {
                                         <Trash2 className="w-4 h-4" />
                                     </button>
                                 )}
+                                {/* Minimize — collapses panel but keeps conversation */}
                                 <button
                                     onClick={() => { setIsOpen(false); setShowDocs(false); }}
-                                    className="p-2 text-[#7A7A8A] hover:text-white hover:bg-white/10 rounded-lg transition-all cursor-pointer"
-                                    title="Close"
+                                    className="p-1.5 rounded-lg transition-all cursor-pointer"
+                                    style={{
+                                        color: "#A8B094",
+                                        backgroundColor: "rgba(168,176,148,0.1)",
+                                        border: "1px solid rgba(168,176,148,0.2)",
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.backgroundColor = "rgba(168,176,148,0.25)";
+                                        e.currentTarget.style.color = "#C8D0B8";
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.backgroundColor = "rgba(168,176,148,0.1)";
+                                        e.currentTarget.style.color = "#A8B094";
+                                    }}
+                                    title="Minimize — conversation is kept"
+                                >
+                                    <Minus className="w-4 h-4" />
+                                </button>
+                                {/* Close — clears chat and closes */}
+                                <button
+                                    onClick={() => { clearChat(); setIsOpen(false); setShowDocs(false); }}
+                                    className="p-1.5 text-[#7A7A8A] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer"
+                                    title="Close & clear chat"
                                 >
                                     <X className="w-4 h-4" />
                                 </button>
