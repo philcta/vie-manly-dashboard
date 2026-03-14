@@ -1,5 +1,6 @@
 import { openai } from "@ai-sdk/openai";
-import { streamText } from "ai";
+import { streamText, convertToModelMessages } from "ai";
+import type { UIMessage } from "ai";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "edge";
@@ -200,20 +201,29 @@ export async function POST(req: Request) {
     // Build context from weekly tables
     const context = await buildBusinessContext();
 
-    // Save user message to conversation history
+    // Extract user text from the last UIMessage (v6 uses parts array)
     const lastMessage = messages[messages.length - 1];
     if (lastMessage?.role === "user" && sessionId) {
-        await supabase.from("coach_conversations").insert({
-            session_id: sessionId,
-            role: "user",
-            content: lastMessage.content,
-        });
+        const userText = lastMessage.parts
+            ?.filter((p: { type: string }) => p.type === "text")
+            .map((p: { text: string }) => p.text)
+            .join("") || lastMessage.content || "";
+        if (userText) {
+            await supabase.from("coach_conversations").insert({
+                session_id: sessionId,
+                role: "user",
+                content: userText,
+            });
+        }
     }
+
+    // Convert UIMessages → ModelMessages for streamText
+    const modelMessages = await convertToModelMessages(messages as UIMessage[]);
 
     const result = streamText({
         model: openai("gpt-4o-mini"),
         system: `${SYSTEM_PROMPT}\n\n## Current Business Data\n\n${context}`,
-        messages,
+        messages: modelMessages,
         onFinish: async ({ text }) => {
             // Save assistant response
             if (sessionId) {
