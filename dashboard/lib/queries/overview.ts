@@ -21,6 +21,8 @@ export interface DailyStats {
     total_gross_sales: number;
     total_items: number;
     total_unique_customers: number;
+    cafe_unique_customers: number;
+    retail_unique_customers: number;
     member_transactions: number;
     member_net_sales: number;
     non_member_transactions: number;

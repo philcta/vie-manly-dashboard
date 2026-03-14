@@ -34,7 +34,8 @@ type SideType = "all" | "cafe" | "retail" | "category";
 // - transactions: daily_item_summary counts per-item appearances, so a single
 //   transaction with items in 2 categories is counted twice → sum ≠ unique count
 // - avg_sale: depends on accurate transaction count
-// - labour_pct, real_profit_pct, customers: not available per category
+// - labour_pct, real_profit_pct: not available per category
+// - customers: not available per category (but IS available per side via cafe_unique_customers/retail_unique_customers)
 const CATEGORY_INCOMPATIBLE: Set<MetricKey> = new Set(["labour_pct", "real_profit_pct", "customers", "transactions", "avg_sale"]);
 
 interface MetricDef {
@@ -349,7 +350,13 @@ export function MetricTimeSeriesChart({
                 // Only net_sales is supported in category mode
                 map.set(date, agg.net);
             }
-        } else if ((side === "cafe" || side === "retail") && metric !== "labour_pct" && metric !== "real_profit_pct" && metric !== "customers") {
+        } else if ((side === "cafe" || side === "retail") && metric === "customers") {
+            // Customers by side: use pre-computed columns from daily_store_stats
+            const custKey = side === "cafe" ? "cafe_unique_customers" : "retail_unique_customers" as const;
+            for (const row of historicalStats) {
+                map.set(row.date, row[custKey] || 0);
+            }
+        } else if ((side === "cafe" || side === "retail") && metric !== "labour_pct" && metric !== "real_profit_pct") {
             // Side-filtered: use category data (Cafe/Retail)
             const targetSide = side === "cafe" ? "Cafe" : "Retail";
             const dayAgg = new Map<string, { net: number; gross: number; txn: number }>();
@@ -776,8 +783,17 @@ function buildMetricData(
             });
     }
 
+    // For side-filtered Customers metric, use pre-computed columns from daily_store_stats
+    if ((side === "cafe" || side === "retail") && metric === "customers") {
+        return stats.map((row) => ({
+            date: row.date,
+            label: dateLabel(row.date),
+            value: side === "cafe" ? (row.cafe_unique_customers || 0) : (row.retail_unique_customers || 0),
+        }));
+    }
+
     // For side-filtered sales metrics (Cafe / Retail), build from categoryData
-    if ((side === "cafe" || side === "retail") && metric !== "labour_pct" && metric !== "real_profit_pct" && metric !== "customers") {
+    if ((side === "cafe" || side === "retail") && metric !== "labour_pct" && metric !== "real_profit_pct") {
         const targetSide = side === "cafe" ? "Cafe" : "Retail";
         const dayAgg = new Map<string, { date: string; net: number; gross: number; txn: number }>();
         for (const r of categoryData) {

@@ -399,6 +399,13 @@ def build_daily_item_summary(rows):
 
 def build_daily_store_stats(rows):
     """Aggregate transaction rows into daily_store_stats records."""
+    # Load category -> side mapping for customer split
+    try:
+        mappings = supa_get("category_mappings?select=category,side")
+        side_map = {m["category"]: m["side"] for m in mappings}
+    except Exception:
+        side_map = {}
+
     by_date = defaultdict(list)
     for r in rows:
         by_date[r["date"]].append(r)
@@ -412,16 +419,26 @@ def build_daily_store_stats(rows):
         nonmember_net = 0
         total_items = 0
         member_ids = set()
+        cafe_customer_ids = set()
+        retail_customer_ids = set()
 
         for r in day_rows:
             tx_ids.add(r["transaction_id"])
             total_net += r["net_sales"]
             total_items += r["qty"]
 
-            if r.get("customer_id"):
+            cust_id = r.get("customer_id")
+            if cust_id:
                 member_tx_ids.add(r["transaction_id"])
                 member_net += r["net_sales"]
-                member_ids.add(r["customer_id"])
+                member_ids.add(cust_id)
+                # Track per-side customers
+                cat = r.get("category", "") or ""
+                cat_side = side_map.get(cat, "Retail")
+                if cat_side == "Cafe":
+                    cafe_customer_ids.add(cust_id)
+                else:
+                    retail_customer_ids.add(cust_id)
             else:
                 nonmember_net += r["net_sales"]
 
@@ -435,6 +452,8 @@ def build_daily_store_stats(rows):
             "total_net_sales": round(total_net, 2),
             "total_items": int(total_items),
             "total_unique_customers": len(member_ids),
+            "cafe_unique_customers": len(cafe_customer_ids),
+            "retail_unique_customers": len(retail_customer_ids),
             "member_transactions": member_tx,
             "member_net_sales": round(member_net, 2),
             "member_items": 0,  # can be refined later

@@ -12,6 +12,7 @@ import {
     Loader2,
     Trash2,
     ChevronDown,
+    Home,
 } from "lucide-react";
 
 function generateSessionId() {
@@ -420,6 +421,15 @@ export default function AiCoachPanel() {
                                 </div>
                             </div>
                             <div className="flex items-center gap-1">
+                                {messages.length > 0 && (
+                                    <button
+                                        onClick={clearChat}
+                                        className="p-2 text-[#7A7A8A] hover:text-white hover:bg-white/10 rounded-lg transition-all cursor-pointer"
+                                        title="Back to menu"
+                                    >
+                                        <Home className="w-4 h-4" />
+                                    </button>
+                                )}
                                 {messages.length > 0 && (
                                     <button
                                         onClick={clearChat}
