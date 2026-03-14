@@ -130,14 +130,16 @@ export async function fetchCategoryDaily(
         .rpc("get_category_daily", {
             start_date: startDate,
             end_date: endDate,
-        });
+        })
+        .limit(100000);
 
     if (error) throw error;
     return (data || []) as CategoryDailyData[];
 }
 
 /** Fetch per-category (granular) daily stats for category filter on charts.
- *  Returns individual categories (e.g. "Cafe Drinks", "Bread & Bakery") not sides. */
+ *  Returns individual categories (e.g. "Cafe Drinks", "Bread & Bakery") not sides.
+ *  Uses a high limit since per-category rows can be 50+ per day × 200+ days. */
 export async function fetchCategoryDetailDaily(
     startDate: string,
     endDate: string
@@ -146,7 +148,8 @@ export async function fetchCategoryDetailDaily(
         .rpc("get_category_detail_daily", {
             start_date: startDate,
             end_date: endDate,
-        });
+        })
+        .limit(100000);
 
     if (error) throw error;
     return (data || []) as CategoryDailyData[];
