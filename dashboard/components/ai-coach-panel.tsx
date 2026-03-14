@@ -492,34 +492,34 @@ export default function AiCoachPanel() {
                                         <Trash2 className="w-4 h-4" />
                                     </button>
                                 )}
-                                {/* Minimize — collapses panel but keeps conversation */}
+                                {/* ▾ Minimize — collapses panel, keeps conversation alive */}
                                 <button
                                     onClick={() => { setIsOpen(false); setShowDocs(false); }}
-                                    className="p-1.5 rounded-lg transition-all cursor-pointer"
+                                    className="flex items-center gap-0.5 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer"
                                     style={{
-                                        color: "#A8B094",
-                                        backgroundColor: "rgba(168,176,148,0.1)",
-                                        border: "1px solid rgba(168,176,148,0.2)",
+                                        color: "#FBBF24",
+                                        backgroundColor: "rgba(251,191,36,0.12)",
+                                        border: "1px solid rgba(251,191,36,0.3)",
                                     }}
                                     onMouseEnter={(e) => {
-                                        e.currentTarget.style.backgroundColor = "rgba(168,176,148,0.25)";
-                                        e.currentTarget.style.color = "#C8D0B8";
+                                        e.currentTarget.style.backgroundColor = "rgba(251,191,36,0.25)";
+                                        e.currentTarget.style.boxShadow = "0 0 10px rgba(251,191,36,0.3)";
                                     }}
                                     onMouseLeave={(e) => {
-                                        e.currentTarget.style.backgroundColor = "rgba(168,176,148,0.1)";
-                                        e.currentTarget.style.color = "#A8B094";
+                                        e.currentTarget.style.backgroundColor = "rgba(251,191,36,0.12)";
+                                        e.currentTarget.style.boxShadow = "none";
                                     }}
                                     title="Minimize — conversation is kept"
                                 >
-                                    <Minus className="w-4 h-4" />
+                                    <ChevronDown className="w-4 h-4" />
                                 </button>
-                                {/* Close — clears chat and closes */}
+                                {/* ✕ Close — clears chat and closes */}
                                 <button
                                     onClick={() => { clearChat(); setIsOpen(false); setShowDocs(false); }}
-                                    className="p-1.5 text-[#7A7A8A] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer"
+                                    className="p-1.5 text-[#555] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer"
                                     title="Close & clear chat"
                                 >
-                                    <X className="w-4 h-4" />
+                                    <X className="w-3.5 h-3.5" />
                                 </button>
 
                                 {/* Docs dropdown */}
