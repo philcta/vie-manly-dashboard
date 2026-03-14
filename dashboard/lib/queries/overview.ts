@@ -139,20 +139,19 @@ export async function fetchCategoryDaily(
 
 /** Fetch per-category (granular) daily stats for category filter on charts.
  *  Returns individual categories (e.g. "Cafe Drinks", "Bread & Bakery") not sides.
- *  Uses a high limit since per-category rows can be 50+ per day × 200+ days. */
+ *  Uses v2 RPC returning JSON to bypass PostgREST's 1000-row limit. */
 export async function fetchCategoryDetailDaily(
     startDate: string,
     endDate: string
 ): Promise<CategoryDailyData[]> {
     const { data, error } = await supabase
-        .rpc("get_category_detail_daily", {
+        .rpc("get_category_detail_daily_v2", {
             start_date: startDate,
             end_date: endDate,
-        })
-        .limit(100000);
+        });
 
     if (error) throw error;
-    return (data || []) as CategoryDailyData[];
+    return (data as unknown as CategoryDailyData[]) || [];
 }
 
 /** Fetch total labour cost for a date range from staff_shifts */
