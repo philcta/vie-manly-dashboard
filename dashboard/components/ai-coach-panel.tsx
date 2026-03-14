@@ -431,52 +431,56 @@ export default function AiCoachPanel() {
                                     </p>
                                 </div>
                             </div>
-                            <div ref={docsRef} className="flex items-center gap-1 relative">
-                                {/* Docs button — always visible, bright amber */}
+                            <div ref={docsRef} className="flex items-center gap-1.5 relative">
+                                {/* Docs button — amber pill, always visible */}
                                 <button
                                     onClick={() => setShowDocs(!showDocs)}
-                                    className="p-2 rounded-lg transition-all duration-200 cursor-pointer"
+                                    className="flex items-center gap-1 px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
                                     style={{
-                                        color: showDocs ? "#FCD34D" : "#FBBF24",
-                                        backgroundColor: showDocs ? "rgba(251,191,36,0.2)" : "transparent",
-                                        boxShadow: showDocs ? "0 0 10px rgba(251,191,36,0.35)" : "none",
+                                        color: "#FCD34D",
+                                        backgroundColor: showDocs ? "rgba(251,191,36,0.25)" : "rgba(251,191,36,0.1)",
+                                        boxShadow: showDocs ? "0 0 12px rgba(251,191,36,0.4)" : "none",
+                                        border: "1px solid rgba(251,191,36,0.25)",
                                     }}
                                     onMouseEnter={(e) => {
-                                        if (!showDocs) {
-                                            e.currentTarget.style.backgroundColor = "rgba(251,191,36,0.15)";
-                                            e.currentTarget.style.boxShadow = "0 0 8px rgba(251,191,36,0.25)";
-                                        }
+                                        e.currentTarget.style.backgroundColor = "rgba(251,191,36,0.25)";
+                                        e.currentTarget.style.boxShadow = "0 0 10px rgba(251,191,36,0.35)";
                                     }}
                                     onMouseLeave={(e) => {
                                         if (!showDocs) {
-                                            e.currentTarget.style.backgroundColor = "transparent";
+                                            e.currentTarget.style.backgroundColor = "rgba(251,191,36,0.1)";
                                             e.currentTarget.style.boxShadow = "none";
                                         }
                                     }}
                                     title="Documents"
                                 >
-                                    <FileText className="w-4 h-4" />
+                                    <FileText className="w-3.5 h-3.5" />
+                                    <span className="text-[10px] font-semibold tracking-wide">Docs</span>
                                 </button>
-                                {/* Home button — bright teal, only when in chat */}
+                                {/* Home button — teal pill, only when in chat */}
                                 {messages.length > 0 && (
-                                    <button
+                                    <motion.button
+                                        initial={{ opacity: 0, scale: 0.8 }}
+                                        animate={{ opacity: 1, scale: 1 }}
                                         onClick={() => { clearChat(); setShowDocs(false); }}
-                                        className="p-2 rounded-lg transition-all duration-200 cursor-pointer"
-                                        style={{ color: "#2DD4BF" }}
+                                        className="flex items-center gap-1 px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+                                        style={{
+                                            color: "#5EEAD4",
+                                            backgroundColor: "rgba(45,212,191,0.12)",
+                                            border: "1px solid rgba(45,212,191,0.25)",
+                                        }}
                                         onMouseEnter={(e) => {
-                                            e.currentTarget.style.backgroundColor = "rgba(45,212,191,0.15)";
-                                            e.currentTarget.style.boxShadow = "0 0 8px rgba(45,212,191,0.3)";
-                                            e.currentTarget.style.color = "#5EEAD4";
+                                            e.currentTarget.style.backgroundColor = "rgba(45,212,191,0.25)";
+                                            e.currentTarget.style.boxShadow = "0 0 10px rgba(45,212,191,0.35)";
                                         }}
                                         onMouseLeave={(e) => {
-                                            e.currentTarget.style.backgroundColor = "transparent";
+                                            e.currentTarget.style.backgroundColor = "rgba(45,212,191,0.12)";
                                             e.currentTarget.style.boxShadow = "none";
-                                            e.currentTarget.style.color = "#2DD4BF";
                                         }}
                                         title="Back to menu"
                                     >
-                                        <Home className="w-4 h-4" />
-                                    </button>
+                                        <Home className="w-3.5 h-3.5" />
+                                    </motion.button>
                                 )}
                                 {messages.length > 0 && (
                                     <button
