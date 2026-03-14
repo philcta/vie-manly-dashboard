@@ -449,6 +449,41 @@ def build_daily_store_stats(rows):
     return records
 
 
+def build_daily_category_stats(rows):
+    """Aggregate transaction rows into daily_category_stats records.
+    Resolves category -> side (Cafe/Retail) from the category_mappings table."""
+    # Fetch category_mappings from Supabase
+    try:
+        mappings = supa_get("category_mappings?select=category,side")
+        side_map = {m["category"]: m["side"] for m in mappings}
+    except Exception:
+        side_map = {}
+
+    # Aggregate by date + category
+    agg = defaultdict(lambda: {"net": 0, "gross": 0, "qty": 0, "txns": set()})
+    for r in rows:
+        cat = r.get("category", "") or "(Uncategorized)"
+        key = (r["date"], cat)
+        a = agg[key]
+        a["net"] += r["net_sales"]
+        a["gross"] += r["gross_sales"]
+        a["qty"] += r["qty"]
+        a["txns"].add(r["transaction_id"])
+
+    records = []
+    for (d, cat), a in agg.items():
+        records.append({
+            "date": d,
+            "category": cat,
+            "side": side_map.get(cat, "Retail"),
+            "total_net_sales": round(a["net"], 2),
+            "total_gross_sales": round(a["gross"], 2),
+            "total_qty": round(a["qty"], 2),
+            "transaction_count": len(a["txns"]),
+        })
+    return records
+
+
 # ============================================
 # Main Orchestrator
 # ============================================
@@ -554,6 +589,21 @@ def run_smart_backfill(lookback_days=14, from_date=None, include_today=False):
             total_stats_rows += len(store_stats)
 
         filled.append(date_str)
+
+        # Build & upsert daily_category_stats
+        cat_stats = build_daily_category_stats(rows)
+        if cat_stats:
+            for i in range(0, len(cat_stats), 500):
+                batch = cat_stats[i:i + 500]
+                try:
+                    supa_post(
+                        "daily_category_stats?on_conflict=date,category",
+                        batch,
+                        extra_headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+                    )
+                except Exception as e:
+                    print(f"    WARNING: Category stats upsert failed: {e}")
+
         cat_total = matched + unmatched
         cat_pct = (matched / cat_total * 100) if cat_total > 0 else 0
         print(f"    -> {len(rows)} tx rows, {len(item_summary)} summaries, "
