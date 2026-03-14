@@ -151,16 +151,122 @@ function renderMarkdown(text: string) {
     return elements;
 }
 
-// ── Suggested prompts ────────────────────────────────────────────────
+// ── Question categories ──────────────────────────────────────────────
 
-const SUGGESTED_PROMPTS = [
-    "How are sales trending this week vs last week?",
-    "Which categories are growing fastest?",
-    "How can I reduce labour costs?",
-    "What's my member engagement like?",
-    "Give me a quick health check of the business",
-    "What should I focus on this week?",
+type QuestionCategory = {
+    id: string;
+    emoji: string;
+    label: string;
+    color: string;
+    activeBg: string;
+    questions: string[];
+};
+
+const QUESTION_CATEGORIES: QuestionCategory[] = [
+    {
+        id: "labour",
+        emoji: "🎯",
+        label: "Labour",
+        color: "text-red-700",
+        activeBg: "bg-red-50 border-red-200",
+        questions: [
+            "What's my labour cost % this week vs the 24% target?",
+            "Which days this week had labour % above 30%? What went wrong?",
+            "Compare weekend vs weekday labour efficiency — where am I overstaffed?",
+            "What's the optimal teen vs adult staff split to minimise costs this weekend?",
+            "Show me labour cost per transaction for each day this week — any outliers?",
+            "If I cut 4 hours on my slowest weekday, how much would I save monthly?",
+            "Which shifts are costing me the most relative to revenue generated?",
+            "Build me a recommended staffing plan for next week based on recent patterns",
+            "Am I spending more on Sunday penalty rates than the extra revenue justifies?",
+            "What's my month-over-month labour trend? Am I improving or getting worse?",
+        ],
+    },
+    {
+        id: "margins",
+        emoji: "💰",
+        label: "Margins",
+        color: "text-amber-700",
+        activeBg: "bg-amber-50 border-amber-200",
+        questions: [
+            "What's driving my average sale value down? Break it down by factor",
+            "Which categories delivered the highest margin this week and why?",
+            "My real profit margin target is 25% — where do I stand and what's the gap?",
+            "Cafe mix is growing — is the extra margin covering the extra labour cost?",
+            "Show me gross vs net spread — are discounts eating into my profits?",
+            "What would happen to monthly profit if I lifted avg sale by $1?",
+            "Rank my bottom 5 margin categories — should I drop any of them?",
+            "Which categories above 42% margin should I give more shelf space to?",
+            "Compare this week's real profit per transaction vs last month's average",
+            "Set me 3 specific margin goals for next week with action steps",
+        ],
+    },
+    {
+        id: "members",
+        emoji: "👥",
+        label: "Members",
+        color: "text-blue-700",
+        activeBg: "bg-blue-50 border-blue-200",
+        questions: [
+            "How many members are at risk of churning this week? What should I do?",
+            "What % of my revenue comes from members vs walk-ins? Is it improving?",
+            "Which members went from Active to Cooling this week? How do I bring them back?",
+            "What's the avg spend difference between members and non-members?",
+            "Give me a loyalty campaign idea for this week based on current member data",
+            "How many new members signed up this week vs last week?",
+            "Which day of the week has the most new member sign-ups?",
+            "What points redemption patterns am I seeing? Are members engaged?",
+            "Identify my top 10 highest-spending members — are any cooling down?",
+            "What should my member re-engagement SMS say this week based on the data?",
+        ],
+    },
+    {
+        id: "stock",
+        emoji: "📦",
+        label: "Stock",
+        color: "text-green-700",
+        activeBg: "bg-green-50 border-green-200",
+        questions: [
+            "Which products should I run a clearance promotion on this week?",
+            "Show me high-margin products that are underselling — I'll push these today",
+            "What categories have dead stock sitting over 90 days? Time to act",
+            "Give me a daily sales goal: which 3 products should I actively promote today?",
+            "Which categories are declining in sales and what could be causing it?",
+            "How many 'Needs Action' inventory alerts do I have? Are they improving?",
+            "What high-margin product could I bundle with a café item for an upsell?",
+            "Compare Tea, Gifts, and Fermented Goods performance — my best margin categories",
+            "How much capital is tied up in slow-moving stock? What should I clear first?",
+            "Suggest a weekly promotion plan based on my highest-margin, lowest-selling items",
+        ],
+    },
+    {
+        id: "gameplan",
+        emoji: "📊",
+        label: "Game Plan",
+        color: "text-purple-700",
+        activeBg: "bg-purple-50 border-purple-200",
+        questions: [
+            "Give me my Monday morning briefing — how did last week go and what to focus on?",
+            "Score my week: rate labour, margins, members, and stock out of 10",
+            "What are the 3 most important things I should fix this week?",
+            "Set me SMART goals for this week across all key metrics",
+            "What does a good week look like for VIE? Define it in numbers",
+            "Compare this week to my best week ever — what's different?",
+            "Am I on track for my monthly targets? What needs to change?",
+            "What's one quick win I can implement today to improve profitability?",
+            "Predict my monthly outcome based on current trends — any red flags?",
+            "Build me a daily checklist for optimising VIE this week",
+        ],
+    },
 ];
+
+// Pick 4 rotating quick suggestions (1 from each of the first 4 categories)
+function getQuickSuggestions(): string[] {
+    return QUESTION_CATEGORIES.slice(0, 4).map((cat) => {
+        const idx = Math.floor(Math.random() * cat.questions.length);
+        return cat.questions[idx];
+    });
+}
 
 // ── Component ────────────────────────────────────────────────────────
 
@@ -185,6 +291,8 @@ export default function AiCoachPanel() {
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const [showScrollBtn, setShowScrollBtn] = useState(false);
+    const [activeCategory, setActiveCategory] = useState<string | null>(null);
+    const [quickSuggestions] = useState(() => getQuickSuggestions());
 
     const { messages, sendMessage, status, setMessages } =
         useChat({
@@ -339,33 +447,97 @@ export default function AiCoachPanel() {
                             style={{ scrollbarWidth: "thin", scrollbarColor: "#EAEAE8 transparent" }}
                         >
                             {messages.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-full text-center px-4">
-                                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#6B7355]/10 to-[#A8B094]/10 flex items-center justify-center mb-4">
-                                        <MessageSquareText className="w-8 h-8 text-[#6B7355]" />
+                                <div className="flex flex-col h-full overflow-y-auto px-1 py-2"
+                                    style={{ scrollbarWidth: "thin", scrollbarColor: "#EAEAE8 transparent" }}>
+                                    {/* Welcome */}
+                                    <div className="text-center px-3 pt-2 pb-3">
+                                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#6B7355]/10 to-[#A8B094]/10 flex items-center justify-center mb-3 mx-auto">
+                                            <MessageSquareText className="w-7 h-7 text-[#6B7355]" />
+                                        </div>
+                                        <h4 className="font-semibold text-[#1A1A1A] text-base mb-0.5">
+                                            Hi Boss! 👋
+                                        </h4>
+                                        <p className="text-[#8A8A8A] text-[12px] leading-relaxed">
+                                            Your AI coach for VIE Market — pick a topic or ask anything
+                                        </p>
                                     </div>
-                                    <h4 className="font-semibold text-[#1A1A1A] text-base mb-1">
-                                        Hi Phil! 👋
-                                    </h4>
-                                    <p className="text-[#8A8A8A] text-sm mb-6 leading-relaxed">
-                                        I&apos;m your AI business coach for VIE Market. Ask me
-                                        about sales, labour, members, or anything else.
-                                    </p>
-                                    <div className="grid gap-2 w-full">
-                                        {SUGGESTED_PROMPTS.slice(0, 4).map((prompt) => (
-                                            <button
-                                                key={prompt}
-                                                onClick={() => handleSuggestion(prompt)}
-                                                className="text-left px-3.5 py-2.5 rounded-xl text-[13px]
-                          bg-[#F8F8F6] hover:bg-[#F0F1EC]
-                          text-[#5A5A5A] hover:text-[#1A1A1A]
-                          border border-[#EAEAE8] hover:border-[#6B7355]/20
-                          transition-all duration-200 cursor-pointer
-                          leading-snug"
-                                            >
-                                                {prompt}
-                                            </button>
-                                        ))}
+
+                                    {/* Quick Suggestions */}
+                                    {!activeCategory && (
+                                        <div className="px-2 mb-3">
+                                            <p className="text-[10px] font-semibold text-[#B0B0B0] uppercase tracking-wider mb-1.5 px-1">
+                                                Quick questions
+                                            </p>
+                                            <div className="grid gap-1.5">
+                                                {quickSuggestions.map((prompt: string) => (
+                                                    <button
+                                                        key={prompt}
+                                                        onClick={() => handleSuggestion(prompt)}
+                                                        className="text-left px-3 py-2 rounded-xl text-[12px]
+                                              bg-[#F8F8F6] hover:bg-[#F0F1EC]
+                                              text-[#5A5A5A] hover:text-[#1A1A1A]
+                                              border border-[#EAEAE8] hover:border-[#6B7355]/20
+                                              transition-all duration-200 cursor-pointer
+                                              leading-snug"
+                                                    >
+                                                        {prompt}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Category Pills */}
+                                    <div className="px-2 mb-2">
+                                        <p className="text-[10px] font-semibold text-[#B0B0B0] uppercase tracking-wider mb-1.5 px-1">
+                                            Browse by topic
+                                        </p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {QUESTION_CATEGORIES.map((cat) => (
+                                                <button
+                                                    key={cat.id}
+                                                    onClick={() =>
+                                                        setActiveCategory(
+                                                            activeCategory === cat.id ? null : cat.id
+                                                        )
+                                                    }
+                                                    className={`px-2.5 py-1.5 rounded-lg text-[12px] font-medium
+                                          border transition-all duration-200 cursor-pointer
+                                          ${activeCategory === cat.id
+                                                            ? `${cat.activeBg} ${cat.color}`
+                                                            : "bg-[#F8F8F6] border-[#EAEAE8] text-[#5A5A5A] hover:bg-[#F0F1EC]"
+                                                        }`}
+                                                >
+                                                    {cat.emoji} {cat.label}
+                                                </button>
+                                            ))}
+                                        </div>
                                     </div>
+
+                                    {/* Expanded Category Questions */}
+                                    {activeCategory && (
+                                        <div className="px-2 pb-2">
+                                            {QUESTION_CATEGORIES.filter(
+                                                (c) => c.id === activeCategory
+                                            ).map((cat) => (
+                                                <div key={cat.id} className="grid gap-1.5">
+                                                    {cat.questions.map((q) => (
+                                                        <button
+                                                            key={q}
+                                                            onClick={() => handleSuggestion(q)}
+                                                            className={`text-left px-3 py-2 rounded-xl text-[12px]
+                                                ${cat.activeBg} ${cat.color}
+                                                hover:brightness-95
+                                                transition-all duration-200 cursor-pointer
+                                                leading-snug`}
+                                                        >
+                                                            {q}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             ) : (
                                 <>
