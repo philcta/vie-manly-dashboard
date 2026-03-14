@@ -13,6 +13,7 @@ import {
     Trash2,
     ChevronDown,
     Home,
+    FileText,
 } from "lucide-react";
 
 function generateSessionId() {
@@ -177,7 +178,6 @@ const QUESTION_CATEGORIES: QuestionCategory[] = [
             "What's the optimal teen vs adult staff split to minimise costs this weekend?",
             "Show me labour cost per transaction for each day this week — any outliers?",
             "If I cut 4 hours on my slowest weekday, how much would I save monthly?",
-            "Which shifts are costing me the most relative to revenue generated?",
             "Build me a recommended staffing plan for next week based on recent patterns",
             "Am I spending more on Sunday penalty rates than the extra revenue justifies?",
             "What's my month-over-month labour trend? Am I improving or getting worse?",
@@ -211,7 +211,6 @@ const QUESTION_CATEGORIES: QuestionCategory[] = [
         questions: [
             "How many members are at risk of churning this week? What should I do?",
             "What % of my revenue comes from members vs walk-ins? Is it improving?",
-            "Which members went from Active to Cooling this week? How do I bring them back?",
             "What's the avg spend difference between members and non-members?",
             "Give me a loyalty campaign idea for this week based on current member data",
             "How many new members signed up this week vs last week?",
@@ -252,10 +251,8 @@ const QUESTION_CATEGORIES: QuestionCategory[] = [
             "What are the 3 most important things I should fix this week?",
             "Set me SMART goals for this week across all key metrics",
             "What does a good week look like for VIE? Define it in numbers",
-            "Compare this week to my best week ever — what's different?",
             "Am I on track for my monthly targets? What needs to change?",
             "What's one quick win I can implement today to improve profitability?",
-            "Predict my monthly outcome based on current trends — any red flags?",
             "Build me a daily checklist for optimising VIE this week",
         ],
     },
@@ -294,6 +291,7 @@ export default function AiCoachPanel() {
     const [showScrollBtn, setShowScrollBtn] = useState(false);
     const [activeCategory, setActiveCategory] = useState<string | null>(null);
     const [quickSuggestions] = useState(() => getQuickSuggestions());
+    const [showDocs, setShowDocs] = useState(false);
 
     const { messages, sendMessage, status, setMessages } =
         useChat({
@@ -420,10 +418,18 @@ export default function AiCoachPanel() {
                                     </p>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 relative">
+                                <button
+                                    onClick={() => setShowDocs(!showDocs)}
+                                    className={`p-2 rounded-lg transition-all cursor-pointer ${showDocs ? "text-white bg-white/15" : "text-[#7A7A8A] hover:text-white hover:bg-white/10"
+                                        }`}
+                                    title="Documents"
+                                >
+                                    <FileText className="w-4 h-4" />
+                                </button>
                                 {messages.length > 0 && (
                                     <button
-                                        onClick={clearChat}
+                                        onClick={() => { clearChat(); setShowDocs(false); }}
                                         className="p-2 text-[#7A7A8A] hover:text-white hover:bg-white/10 rounded-lg transition-all cursor-pointer"
                                         title="Back to menu"
                                     >
@@ -432,7 +438,7 @@ export default function AiCoachPanel() {
                                 )}
                                 {messages.length > 0 && (
                                     <button
-                                        onClick={clearChat}
+                                        onClick={() => { clearChat(); setShowDocs(false); }}
                                         className="p-2 text-[#7A7A8A] hover:text-white hover:bg-white/10 rounded-lg transition-all cursor-pointer"
                                         title="Clear chat"
                                     >
@@ -440,12 +446,67 @@ export default function AiCoachPanel() {
                                     </button>
                                 )}
                                 <button
-                                    onClick={() => setIsOpen(false)}
+                                    onClick={() => { setIsOpen(false); setShowDocs(false); }}
                                     className="p-2 text-[#7A7A8A] hover:text-white hover:bg-white/10 rounded-lg transition-all cursor-pointer"
                                     title="Close"
                                 >
                                     <X className="w-4 h-4" />
                                 </button>
+
+                                {/* Docs dropdown */}
+                                <AnimatePresence>
+                                    {showDocs && (
+                                        <motion.div
+                                            initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                            exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                                            transition={{ duration: 0.15 }}
+                                            className="absolute top-full right-0 mt-2 w-64 bg-white rounded-xl shadow-2xl border border-[#EAEAE8] z-50 overflow-hidden"
+                                        >
+                                            <div className="p-3 space-y-3">
+                                                {/* AI Guide */}
+                                                <div>
+                                                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7355] mb-1.5 px-1">📘 AI Guide</p>
+                                                    <a
+                                                        href="/docs/ai_coach_tutorial.pdf"
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-[#F5F5F0] transition-colors group"
+                                                    >
+                                                        <FileText className="w-4 h-4 text-[#6B7355] shrink-0" />
+                                                        <span className="text-xs text-[#1A1A1A] group-hover:text-[#6B7355] transition-colors">AI Coach Tutorial</span>
+                                                    </a>
+                                                </div>
+                                                <div className="border-t border-[#EAEAE8]" />
+                                                {/* Big Pic Reports */}
+                                                <div>
+                                                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#B8860B] mb-1.5 px-1">📊 Big Pic Reports</p>
+                                                    <a
+                                                        href="/docs/business_improvement_plan.pdf"
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-[#F5F5F0] transition-colors group"
+                                                    >
+                                                        <FileText className="w-4 h-4 text-[#B8860B] shrink-0" />
+                                                        <span className="text-xs text-[#1A1A1A] group-hover:text-[#B8860B] transition-colors">Business Improvement Plan</span>
+                                                    </a>
+                                                </div>
+                                                <div className="border-t border-[#EAEAE8]" />
+                                                {/* Monthly Reports */}
+                                                <div>
+                                                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#4A6FA5] mb-1.5 px-1">📅 Monthly Reports</p>
+                                                    <p className="text-[11px] text-[#999] italic px-2.5 py-1.5">Coming soon</p>
+                                                </div>
+                                                <div className="border-t border-[#EAEAE8]" />
+                                                {/* Weekly Reports */}
+                                                <div>
+                                                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#7B68AE] mb-1.5 px-1">📋 Weekly Reports</p>
+                                                    <p className="text-[11px] text-[#999] italic px-2.5 py-1.5">Coming soon</p>
+                                                </div>
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
                             </div>
                         </div>
 
