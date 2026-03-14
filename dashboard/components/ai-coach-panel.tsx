@@ -435,10 +435,24 @@ export default function AiCoachPanel() {
                                 {/* Docs button — always visible, bright amber */}
                                 <button
                                     onClick={() => setShowDocs(!showDocs)}
-                                    className={`p-2 rounded-lg transition-all duration-200 cursor-pointer ${showDocs
-                                            ? "text-amber-300 bg-amber-400/20 shadow-[0_0_8px_rgba(251,191,36,0.3)]"
-                                            : "text-amber-400/80 hover:text-amber-300 hover:bg-amber-400/15 hover:shadow-[0_0_6px_rgba(251,191,36,0.2)]"
-                                        }`}
+                                    className="p-2 rounded-lg transition-all duration-200 cursor-pointer"
+                                    style={{
+                                        color: showDocs ? "#FCD34D" : "#FBBF24",
+                                        backgroundColor: showDocs ? "rgba(251,191,36,0.2)" : "transparent",
+                                        boxShadow: showDocs ? "0 0 10px rgba(251,191,36,0.35)" : "none",
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        if (!showDocs) {
+                                            e.currentTarget.style.backgroundColor = "rgba(251,191,36,0.15)";
+                                            e.currentTarget.style.boxShadow = "0 0 8px rgba(251,191,36,0.25)";
+                                        }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        if (!showDocs) {
+                                            e.currentTarget.style.backgroundColor = "transparent";
+                                            e.currentTarget.style.boxShadow = "none";
+                                        }
+                                    }}
                                     title="Documents"
                                 >
                                     <FileText className="w-4 h-4" />
@@ -447,7 +461,18 @@ export default function AiCoachPanel() {
                                 {messages.length > 0 && (
                                     <button
                                         onClick={() => { clearChat(); setShowDocs(false); }}
-                                        className="p-2 text-teal-400/80 hover:text-teal-300 hover:bg-teal-400/15 hover:shadow-[0_0_6px_rgba(45,212,191,0.25)] rounded-lg transition-all duration-200 cursor-pointer"
+                                        className="p-2 rounded-lg transition-all duration-200 cursor-pointer"
+                                        style={{ color: "#2DD4BF" }}
+                                        onMouseEnter={(e) => {
+                                            e.currentTarget.style.backgroundColor = "rgba(45,212,191,0.15)";
+                                            e.currentTarget.style.boxShadow = "0 0 8px rgba(45,212,191,0.3)";
+                                            e.currentTarget.style.color = "#5EEAD4";
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.currentTarget.style.backgroundColor = "transparent";
+                                            e.currentTarget.style.boxShadow = "none";
+                                            e.currentTarget.style.color = "#2DD4BF";
+                                        }}
                                         title="Back to menu"
                                     >
                                         <Home className="w-4 h-4" />
