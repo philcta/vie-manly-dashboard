@@ -138,20 +138,34 @@ export async function fetchCategoryDaily(
 }
 
 /** Fetch per-category (granular) daily stats for category filter on charts.
- *  Returns individual categories (e.g. "Cafe Drinks", "Bread & Bakery") not sides.
- *  Uses v2 RPC returning JSON to bypass PostgREST's 1000-row limit. */
+ *  Queries daily_category_stats table directly with pagination to avoid
+ *  PostgREST's 1000-row limit on RPCs. */
 export async function fetchCategoryDetailDaily(
     startDate: string,
     endDate: string
 ): Promise<CategoryDailyData[]> {
-    const { data, error } = await supabase
-        .rpc("get_category_detail_daily_v2", {
-            start_date: startDate,
-            end_date: endDate,
-        });
+    const allRows: CategoryDailyData[] = [];
+    const PAGE_SIZE = 10000;
+    let from = 0;
 
-    if (error) throw error;
-    return (data as unknown as CategoryDailyData[]) || [];
+    while (true) {
+        const { data, error } = await supabase
+            .from("daily_category_stats")
+            .select("date, category, total_net_sales, total_gross_sales, total_qty, transaction_count")
+            .gte("date", startDate)
+            .lte("date", endDate)
+            .order("date", { ascending: true })
+            .range(from, from + PAGE_SIZE - 1);
+
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+
+        allRows.push(...(data as CategoryDailyData[]));
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+    }
+
+    return allRows;
 }
 
 /** Fetch total labour cost for a date range from staff_shifts */
