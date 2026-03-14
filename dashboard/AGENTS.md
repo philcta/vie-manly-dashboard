@@ -1,7 +1,7 @@
 # AGENTS.md — VIE. MANLY Dashboard Project
 
 > **This file is the project brain. Read it first in every new conversation.**
-> Last updated: 2026-03-13
+> Last updated: 2026-03-14
 
 ## Identity
 
@@ -55,7 +55,7 @@ The automated sync runs 6 phases in sequence:
 
 | Phase | Script/Module | What it does |
 |---|---|---|
-| 1. Smart Backfill | `scripts/smart_backfill.py` | Detects & fills missing date gaps (last 14 days) |
+| 1. Smart Backfill | `scripts/smart_backfill.py` | Detects & fills missing date gaps (last 14 days). Also populates `daily_category_stats`. |
 | 2. Latest Sync | `services/square_sync.py` | Pulls last 4h of transactions + inventory + customers from Square API |
 | 3. Stock Intelligence | `scripts/sync_inventory_intelligence.py` | Calculates sales velocity, reorder alerts (90 days) |
 | 4. Spending Patterns | Supabase RPC | Refreshes `mv_member_spending_patterns` materialized view |
@@ -63,7 +63,8 @@ The automated sync runs 6 phases in sequence:
 | 6. Member Stats | `scripts/backfill_member_analytics.py` | Recalculates `member_daily_stats` for ALL members from transactions |
 
 **Key derived tables**:
-- `transactions` → aggregated into `daily_store_stats` (member/non-member split) and `daily_item_summary`
+- `transactions` → aggregated into `daily_store_stats` (member/non-member split), `daily_item_summary`, and `daily_category_stats`
+- `daily_category_stats`: pre-computed per-category per-day stats with Cafe/Retail side. Replaces expensive `daily_item_summary` aggregation for chart queries. Queried directly from dashboard (not via RPC) with `.range()` pagination to bypass PostgREST's 1000-row limit.
 - `transactions` → `member_daily_stats` (cumulative visits, spend, 30d trends per member)
 - `staff_shifts` populated from Square Team API
 - `inventory` snapshots from Square, enriched into `inventory_intelligence`
@@ -73,9 +74,12 @@ The automated sync runs 6 phases in sequence:
 ## Known Gotchas & Past Bugs
 
 1. **`business_side` values**: Staff shifts use "Bar" (not "Cafe"), "Retail", "Overhead". Code maps Bar+Overhead → Cafe.
-2. **Function overloading**: `get_category_daily` had a duplicate `(text, text)` overload causing PostgREST 300 errors. Fixed by dropping old overload.
+2. **Function overloading (FIXED 2026-03-14)**: `get_category_daily` had TWO versions — one with `(text, text)` and one with `(date, date)` params. PostgREST can't disambiguate → `PGRST203` error → `Promise.all()` crash → entire dashboard shows $0. Fix: drop the `(date, date)` version. **NEVER create a function with same name but different param types.**
 3. **Duplicate transactions (FIXED 2026-03-13)**: Root cause was 3 scripts generating `row_key` in incompatible formats: `rebuild_from_square.py` used `{order_id}-LI-{idx}`, `smart_backfill.py` used plain concatenation, `square_sync.py` used MD5 hash. All three now use the deterministic `{order_id}-LI-{idx}` format. Also fixed `smart_backfill.py` to use `closed_at` instead of `created_at` for consistency.
-4. **`is_closed` flag**: `daily_store_stats.is_closed = true` marks pre-opening dates and closed days. ALL RPCs and queries must filter this.
+4. **`is_closed` flag**: `daily_store_stats.is_closed = true` marks only genuinely closed/transition days (Aug 18, Aug 20 — sub-$100 sales during ownership changeover). Historical data pre-Aug 20 2025 is now `is_closed = false` so it shows on the dashboard. Labour/profit metrics show N/A for periods spanning pre-Aug 20 since no shift data exists.
+12. **PostgREST 1000-row limit**: RPCs returning `SETOF` are capped at 1000 rows by PostgREST's server-side `max_rows`. Client-side `.limit()` CANNOT override this. Workaround: query tables directly with `.range()` pagination, or use pre-computed summary tables. The `daily_category_stats` table + direct `.from()` query with `.range()` pagination is the current solution.
+13. **Pre-Aug 20 data & N/A cards**: The store opened Aug 20, 2025. Pre-Aug 20 data is CSV-imported from previous owner. No labour/shift data exists before this date. Dashboard shows N/A on Labour Cost, Labour %, Real Profit Margin, Real Profit $ when period includes pre-Aug 20. Chart greys out "Real Profit %" and "Labour %" toggles. Constant `STORE_OPENING_DATE = "2025-08-20"` in both `app/page.tsx` and `metric-timeseries-chart.tsx`.
+14. **Promise.all crash pattern**: All 19 data fetches in `loadData()` are wrapped in one `Promise.all()`. If ANY single fetch throws, ALL data shows as zero/empty. Always check browser console for the specific failing RPC/query.
 5. **Timezone**: All dates are Sydney local time (AEST/AEDT). Square API returns UTC — conversion happens at ingest.
 6. **Financial Year**: Australian FY is July 1 – June 30.
 7. **`member_daily_stats` must be recalculated**: This table is NOT incrementally updated — it requires a full rebuild from `transactions` (Phase 6 of scheduled_sync). Before 2026-03-12, it was only populated by manual one-off backfills. Gap incident: 228 members had stale data for 4 days (Mar 9–12). Now automated.
@@ -92,8 +96,21 @@ The automated sync runs 6 phases in sequence:
 4. **Pre-built search extractors**: Avoid `columns.find()` per row per key on each filter pass
 5. **Composite indexes**: `idx_dis_item_date`, `idx_inv_source_product`
 6. **Materialized views**: `mv_member_spending_patterns` for expensive spending pattern queries
+7. **Pre-computed `daily_category_stats`**: Eliminates expensive `daily_item_summary` GROUP BY at query time for category charts. 38,547 rows pre-aggregated by date+category+side.
 
 ## Session Log (Most Recent First)
+
+### 2026-03-14 — Pre-Aug 20 Historical Data + Category Chart Fix
+- **Investigated missing historical data**: $2.19M in CSV-imported sales (Jan 2024 – Aug 2025) was hidden because all 590 pre-Aug 18 rows in `daily_store_stats` had `is_closed = true`
+- **Unflagged 590 rows**: Set `is_closed = false` for all pre-Aug 18 dates. Kept Aug 18 ($79.60) and Aug 20 ($56.90) as closed — genuine transition days
+- **N/A on labour/profit cards**: When selected period includes pre-Aug 20 dates, Labour Cost, Labour %, Real Profit Margin, Real Profit $ now show "N/A" with subtitle "No shift data before Aug 20"
+- **Chart toggle greying**: "Real Profit %" and "Labour %" pills are greyed out (disabled) when period spans pre-Aug 20 — extends existing Category-mode greying pattern
+- **Category chart truncation fixed**: `get_category_detail_daily` RPC was returning only 1000 rows (PostgREST `max_rows` cap), cutting off category charts at ~Jan 21. Tried `.limit()` (doesn't override server cap), tried JSON-returning RPC (broke Supabase JS client). Final fix: created `daily_category_stats` pre-computed table and query it directly with `.range()` pagination
+- **New table: `daily_category_stats`**: Pre-computed per-category per-day stats (date, category, side, net_sales, gross_sales, qty, transaction_count). Backfilled 38,547 rows. Sync pipeline updated to populate on every run
+- **Function overloading crash (PGRST203)**: Creating new `get_category_daily(text, text)` alongside old `get_category_daily(date, date)` caused PostgREST ambiguity error → entire `Promise.all()` crashed → dashboard showed $0 everywhere. Fixed by dropping the old `(date, date)` version
+- **Updated RPCs**: `get_category_daily` and `get_category_detail_daily_v2` now read from `daily_category_stats` instead of `daily_item_summary`
+- **Sync pipeline**: `smart_backfill.py` now also builds and upserts `daily_category_stats` alongside `daily_item_summary` and `daily_store_stats`
+- Commits: `c5ad2fb` (pre-Aug 20 data + N/A cards), `63ca7cf` (limit attempt), `9f49bf0` (JSON RPC), `4041e8c` (pre-computed table + sync), `8cc2a1d` (direct table query + pagination)
 
 ### 2026-03-13 - Duplicate Transaction Fix + Staff Pay Period + RLS Security
 - **Root cause of duplicate transactions identified and fixed**:

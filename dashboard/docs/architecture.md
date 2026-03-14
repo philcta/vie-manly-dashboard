@@ -62,6 +62,7 @@ dashboard/
 | `category_mappings` | 113 | Category → Cafe/Retail side mapping |
 | `customer_id_mapping` | 231 | Old → new Square customer ID mappings (store ownership transfer) |
 | `sync_log` | ~10 | Audit trail of scheduled sync runs |
+| `daily_category_stats` | 38.5K | Pre-computed per-category per-day stats with Cafe/Retail side. Queried directly (not via RPC) to bypass PostgREST 1000-row limit. |
 
 ## Key Supabase RPCs
 | RPC | Purpose |
@@ -71,8 +72,8 @@ dashboard/
 | `get_member_period_kpis(start, end)` | Period-specific member KPIs |
 | `get_loyalty_period_kpis(start, end)` | Period-specific loyalty stats |
 | `get_member_spending_patterns()` | All-time vs 30d spending patterns (uses materialized view `mv_member_spending_patterns`) |
-| `get_category_daily(start, end)` | Daily Cafe/Retail sales (joins `daily_store_stats` for `is_closed` filter) |
-| `get_category_detail_daily(start, end)` | Daily per-category sales (also `is_closed` filtered) |
+| `get_category_daily(start, end)` | Daily Cafe/Retail sales (reads from `daily_category_stats`, joins `daily_store_stats` for `is_closed` filter). **WARNING**: Only ONE version must exist — never create overloaded variants with `(date,date)` params, causes PGRST203. |
+| `get_category_detail_daily(start, end)` | Daily per-category sales — **NOT used by dashboard** (dashboard queries `daily_category_stats` table directly with `.range()` pagination to avoid PostgREST 1000-row limit) |
 | `get_latest_member_stats()` | Latest stats per member (DISTINCT ON) |
 
 ## Key Formulas
@@ -89,9 +90,10 @@ See `docs/formulas_reference.md` for complete reference. Key ones:
 ## Performance Optimizations
 1. **Consolidated RPCs**: `get_inventory_full()` and `get_members_full()` replace 4-7 separate API calls each
 2. **Materialized views**: `mv_member_spending_patterns` pre-computes expensive spending pattern queries
-3. **Pre-aggregated tables**: `daily_store_stats` and `daily_item_summary` avoid scanning raw transactions
+3. **Pre-aggregated tables**: `daily_store_stats`, `daily_item_summary`, and `daily_category_stats` avoid scanning raw transactions
 4. **Composite indexes**: `idx_dis_item_date`, `idx_inv_source_product`, plus per-table date/customer indexes
-5. **is_closed filtering**: All RPCs exclude pre-opening data (before Aug 2025) via `is_closed` flag
+5. **is_closed filtering**: Used only on 2 transition days (Aug 18, Aug 20). Pre-Aug 20 data is now visible. Labour/profit metrics show N/A for pre-opening periods.
+6. **Direct table queries with `.range()`**: `daily_category_stats` is queried directly from the dashboard (not via RPC) using `.range()` pagination to bypass PostgREST's 1000-row server-side limit.
 
 ## Automated Sync Pipeline — `scripts/scheduled_sync.py`
 
@@ -99,7 +101,7 @@ Runs every 2 hours (Task Scheduler / GitHub Actions).
 
 | Phase | Script | What it does |
 |---|---|---|
-| 1 | `scripts/smart_backfill.py` | Detect & fill missing date gaps (last 14 days) |
+| 1 | `scripts/smart_backfill.py` | Detect & fill missing date gaps (last 14 days). Also populates `daily_category_stats`. |
 | 2 | `services/square_sync.py` (`run_full_sync`) | Pull last 4h transactions + inventory + customers |
 | 3 | `scripts/sync_inventory_intelligence.py` | Sales velocity, reorder alerts (90 day window) |
 | 4 | Supabase RPC `refresh_member_spending_patterns` | Refresh materialized view |
@@ -138,9 +140,11 @@ git add -A && git commit -m "description" && git push origin master
 
 ## Transaction Deduplication — row_key
 
-All scripts that insert transactions MUST use the same ow_key format:
+All scripts that insert transactions MUST use the same 
+ow_key format:
 - **Format**: {order_id}-LI-{line_item_index} (e.g., Abc123XYZ-LI-0)
-- **Upsert**: on_conflict=row_key with esolution=merge-duplicates
+- **Upsert**: on_conflict=row_key with 
+esolution=merge-duplicates
 - **Order datetime**: Always use closed_at (not created_at) from Square API — matches Square dashboard's "Bills Closed" logic
 
 Scripts that insert transactions:
