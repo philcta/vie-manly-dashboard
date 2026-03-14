@@ -292,6 +292,7 @@ export default function AiCoachPanel() {
     const [activeCategory, setActiveCategory] = useState<string | null>(null);
     const [quickSuggestions] = useState(() => getQuickSuggestions());
     const [showDocs, setShowDocs] = useState(false);
+    const docsRef = useRef<HTMLDivElement>(null);
 
     const { messages, sendMessage, status, setMessages } =
         useChat({
@@ -325,6 +326,18 @@ export default function AiCoachPanel() {
             setShowScrollBtn(!atBottom);
         }
     }, []);
+
+    // Close docs dropdown on click outside
+    useEffect(() => {
+        if (!showDocs) return;
+        const handleClickOutside = (e: MouseEvent) => {
+            if (docsRef.current && !docsRef.current.contains(e.target as Node)) {
+                setShowDocs(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [showDocs]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -418,19 +431,23 @@ export default function AiCoachPanel() {
                                     </p>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-1 relative">
+                            <div ref={docsRef} className="flex items-center gap-1 relative">
+                                {/* Docs button — always visible, bright amber */}
                                 <button
                                     onClick={() => setShowDocs(!showDocs)}
-                                    className={`p-2 rounded-lg transition-all cursor-pointer ${showDocs ? "text-white bg-white/15" : "text-[#7A7A8A] hover:text-white hover:bg-white/10"
+                                    className={`p-2 rounded-lg transition-all duration-200 cursor-pointer ${showDocs
+                                            ? "text-amber-300 bg-amber-400/20 shadow-[0_0_8px_rgba(251,191,36,0.3)]"
+                                            : "text-amber-400/80 hover:text-amber-300 hover:bg-amber-400/15 hover:shadow-[0_0_6px_rgba(251,191,36,0.2)]"
                                         }`}
                                     title="Documents"
                                 >
                                     <FileText className="w-4 h-4" />
                                 </button>
+                                {/* Home button — bright teal, only when in chat */}
                                 {messages.length > 0 && (
                                     <button
                                         onClick={() => { clearChat(); setShowDocs(false); }}
-                                        className="p-2 text-[#7A7A8A] hover:text-white hover:bg-white/10 rounded-lg transition-all cursor-pointer"
+                                        className="p-2 text-teal-400/80 hover:text-teal-300 hover:bg-teal-400/15 hover:shadow-[0_0_6px_rgba(45,212,191,0.25)] rounded-lg transition-all duration-200 cursor-pointer"
                                         title="Back to menu"
                                     >
                                         <Home className="w-4 h-4" />
