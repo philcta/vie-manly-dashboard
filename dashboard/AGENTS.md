@@ -98,9 +98,62 @@ The automated sync runs 6 phases in sequence:
 6. **Materialized views**: `mv_member_spending_patterns` for expensive spending pattern queries
 7. **Pre-computed `daily_category_stats`**: Eliminates expensive `daily_item_summary` GROUP BY at query time for category charts. 38,547 rows pre-aggregated by date+category+side.
 
+## AI Coach Knowledge Base (Created 2026-03-14)
+
+8 weekly pre-computed tables for AI business coaching. Migration SQL in `supabase/migrations/01-08_*.sql`.
+
+| Table | Purpose | PK Dimensions | Backfill From |
+|---|---|---|---|
+| `weekly_store_stats` | Sales, labour, margins, staff per week | `(week_start, side, day_type)` | Jan 2024 (sales), Aug 2025 (labour) |
+| `weekly_category_stats` | Per-category sales, rank, trends | `(week_start, category, day_type)` | Jan 2024 |
+| `weekly_member_stats` | Member engagement, loyalty, churn | `(week_start, customer_type, age_group, day_type)` | Aug 2025 |
+| `weekly_staff_stats` | Labour by side, day type, age group | `(week_start, side, day_type)` | Aug 2025 |
+| `weekly_inventory_stats` | Stock snapshots per category | `(week_start, category)` | Aug 2025 |
+| `weekly_hourly_patterns` | Avg hourly transaction patterns | `(week_start, hour, day_type)` | Jan 2024 |
+| `weekly_dow_stats` | Day-of-week patterns (Mon-Sun) | `(week_start, dow, side)` | Jan 2024 |
+| `coach_conversations` | AI coach chat memory | `(id)` | N/A |
+
+**Dimension values**: `side`: All/Cafe/Retail | `day_type`: all/weekday/weekend | `customer_type`: all/member/non_member | `age_group`: all/teen/adult | `dow`: 0-6 (Sun-Sat)
+
+**Next steps**: Write backfill script (`scripts/backfill_weekly_stats.py`), integrate into `scheduled_sync.py`, build AI chat panel UI.
+
+**Full audit**: Every dashboard KPI, chart metric, and table column was audited — see `dashboard_metrics_audit.md` artifact.
+
 ## Session Log (Most Recent First)
 
-### 2026-03-14 — Pre-Aug 20 Historical Data + Category Chart Fix
+### 2026-03-14 (PM) — AI Coach Knowledge Base Tables Created
+
+**Objective**: Build comprehensive pre-computed weekly knowledge base for AI Business Coach
+
+**What was done**:
+1. **Full dashboard audit**: Went through every KPI, chart, and table across all 4 pages (Overview, Members, Inventory, Staff) to capture EVERY metric
+2. **Schema design**: Designed 8 tables covering 100% of dashboard metrics plus hourly patterns and day-of-week analysis
+3. **Created 8 SQL migration files** in `supabase/migrations/01-08_*.sql`
+4. **Tables created in Supabase** (user ran SQL manually in SQL Editor)
+5. **RLS enabled** on all 8 tables (anon read-only)
+
+**Tables are EMPTY** — need backfill script next session.
+
+**Key design decisions**:
+- Weekly granularity (not daily) for compact AI context (~60K total rows)
+- Multi-dimensional slicing: side × day_type × customer_type × age_group
+- `weekly_hourly_patterns` captures peak hours at weekly level
+- `weekly_dow_stats` captures Mon-Sun patterns within each week (avoids need for full daily tables)
+- Phase 2 (later): daily_hourly_patterns if AI coach needs deeper drill
+
+**Files created**:
+- `supabase/migrations/01_weekly_store_stats.sql` through `08_coach_conversations.sql`
+- `supabase/migrations/20260314_create_weekly_knowledge_base.sql` (combined)
+- `scripts/create_weekly_knowledge_base.py` (helper script, optional)
+
+**AI Coach Plan** (for future sessions):
+- Model: OpenAI gpt-4o-mini ($2-5/mo) or Anthropic Claude via API key
+- Frontend: Floating Action Button → slide-out chat panel
+- Backend: Vercel AI SDK + Next.js API route (`app/api/chat/route.ts`)
+- Context: `buildBusinessContext()` queries weekly tables, injects into system prompt
+- Memory: `coach_conversations` table stores chat history per session
+
+### 2026-03-14 (AM) — Pre-Aug 20 Historical Data + Category Chart Fix
 - **Investigated missing historical data**: $2.19M in CSV-imported sales (Jan 2024 – Aug 2025) was hidden because all 590 pre-Aug 18 rows in `daily_store_stats` had `is_closed = true`
 - **Unflagged 590 rows**: Set `is_closed = false` for all pre-Aug 18 dates. Kept Aug 18 ($79.60) and Aug 20 ($56.90) as closed — genuine transition days
 - **N/A on labour/profit cards**: When selected period includes pre-Aug 20 dates, Labour Cost, Labour %, Real Profit Margin, Real Profit $ now show "N/A" with subtitle "No shift data before Aug 20"

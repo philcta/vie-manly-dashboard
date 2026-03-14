@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import AppSidebar from "@/components/app-sidebar";
+import AiCoachPanel from "@/components/ai-coach-panel";
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
     const [collapsed, setCollapsed] = useState(false);
@@ -36,6 +37,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             >
                 {children}
             </main>
+            <AiCoachPanel />
         </div>
     );
 }

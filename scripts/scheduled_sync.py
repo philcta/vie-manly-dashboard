@@ -1,13 +1,14 @@
 """
 scheduled_sync.py — Combined sync runner for scheduled execution (every 2 hours).
 
-This script runs SIX complementary sync operations:
+This script runs SEVEN complementary sync operations:
   1. SMART BACKFILL: Detect and fill any missing date gaps (last 14 days)
   2. LATEST SYNC: Pull the most recent transactions (last 4 hours overlap)
   3. STOCK INTELLIGENCE: Sales velocity, reorder alerts
   4. MEMBER SPENDING PATTERNS: Refresh materialized view
   5. LOYALTY SYNC: Pull latest loyalty balances + events from Square
   6. MEMBER DAILY STATS: Recalculate member_daily_stats from all transactions
+  7. WEEKLY KNOWLEDGE BASE: Rebuild weekly pre-computed stats for AI Coach
 
 This approach ensures:
   - No gaps in historical data (smart_backfill catches missed days)
@@ -51,6 +52,7 @@ def main():
     parser.add_argument("--skip-latest", action="store_true", help="Skip latest sync, only do backfill")
     parser.add_argument("--skip-loyalty", action="store_true", help="Skip loyalty sync")
     parser.add_argument("--skip-member-stats", action="store_true", help="Skip member daily stats recalculation")
+    parser.add_argument("--skip-weekly-stats", action="store_true", help="Skip weekly knowledge base rebuild")
     args = parser.parse_args()
 
     now = datetime.now(SYDNEY_TZ)
@@ -66,6 +68,7 @@ def main():
         "spending_patterns": None,
         "loyalty": None,
         "member_stats": None,
+        "weekly_stats": None,
     }
 
     # Phase 1: Smart Backfill (detect & fill gaps)
@@ -183,6 +186,19 @@ def main():
             print(f"  Phase 6 FAILED: {e}")
             results["member_stats"] = {"status": "error", "error": str(e)}
 
+    # Phase 7: Weekly Knowledge Base Stats
+    if not args.skip_weekly_stats:
+        print("\n--- PHASE 7: Weekly Knowledge Base (AI Coach stats) ---")
+        t0 = time.time()
+        try:
+            from scripts.backfill_weekly_stats import run_weekly_stats_update
+            weekly_result = run_weekly_stats_update(weeks_back=4)  # Last 4 weeks
+            results["weekly_stats"] = weekly_result
+            print(f"  Phase 7 completed in {time.time() - t0:.1f}s")
+        except Exception as e:
+            print(f"  Phase 7 FAILED: {e}")
+            results["weekly_stats"] = {"status": "error", "error": str(e)}
+
     # Summary
     completed = datetime.now(SYDNEY_TZ)
     results["completed_at"] = completed.isoformat()
@@ -222,6 +238,12 @@ def main():
         if ms.get("status") != "success":
             print(f"  Status:   {ms.get('status', 'unknown')}")
 
+    if results["weekly_stats"]:
+        ws = results["weekly_stats"]
+        print(f"  Weekly:   {ws.get('total_rows', 0)} weekly knowledge base rows")
+        if ws.get("status") != "success":
+            print(f"  Status:   {ws.get('status', 'unknown')}")
+
     print(f"{'=' * 60}")
 
     # Log to Supabase
@@ -247,6 +269,8 @@ def main():
                 statuses.append(results["loyalty"].get("status", "unknown"))
             if results["member_stats"]:
                 statuses.append(results["member_stats"].get("status", "unknown"))
+            if results["weekly_stats"]:
+                statuses.append(results["weekly_stats"].get("status", "unknown"))
             
             overall = "success" if all(s in ("success", "complete") for s in statuses) else "partial"
             
@@ -254,12 +278,13 @@ def main():
             latest_tx = results["latest_sync"].get("transactions", 0) if results["latest_sync"] else 0
             loyalty_events = results["loyalty"].get("events_synced", 0) if results["loyalty"] else 0
             member_rows = results["member_stats"].get("member_daily_stats", 0) if results["member_stats"] else 0
+            weekly_rows = results["weekly_stats"].get("total_rows", 0) if results["weekly_stats"] else 0
             
             log_entry = {
                 "sync_type": "scheduled",
                 "started_at": results["started_at"],
                 "completed_at": results["completed_at"],
-                "records_synced": backfill_filled + latest_tx + loyalty_events + member_rows,
+                "records_synced": backfill_filled + latest_tx + loyalty_events + member_rows + weekly_rows,
                 "status": overall,
                 "error_message": None,
             }
