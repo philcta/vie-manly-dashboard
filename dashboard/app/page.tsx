@@ -34,6 +34,9 @@ import { formatCurrency, formatPercent, formatNumber, calcChange } from "@/lib/f
 import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 
+// Store opened Aug 20, 2025 — no labour/shift data exists before this date
+const STORE_OPENING_DATE = "2025-08-20";
+
 // ── Types for inventory margins ─────────────────────────────────
 
 interface MarginRow {
@@ -199,8 +202,14 @@ export default function OverviewPage() {
   const cs = currentStats;
   const ps = compStats;
 
+  // Resolve current range to check if it spans pre-opening
+  const currentRange = resolvePeriodRange(period, customStart, customEnd);
+  const periodIncludesPreOpening = currentRange.startDate < STORE_OPENING_DATE;
+
   const noCompData = !ps || ps.transactions === 0;
   const noCompLabour = noCompData || compLabourCost === 0;
+  // Labour/profit data is unavailable when period includes pre-Aug 20 dates
+  const noLabourData = periodIncludesPreOpening || noCompLabour;
 
   const labourRatio = cs && cs.netSales > 0 ? (labourCost / cs.netSales) * 100 : 0;
   const compLabourRatio = ps && ps.netSales > 0 ? (compLabourCost / ps.netSales) * 100 : 0;
@@ -363,22 +372,22 @@ export default function OverviewPage() {
               />
               <KpiCard
                 label="Labour Cost"
-                value={labourCost}
-                formatter={(n) => formatCurrency(n)}
-                change={noCompLabour ? null : calcChange(labourCost, compLabourCost)}
-                noCompData={noCompLabour}
+                value={periodIncludesPreOpening ? 0 : labourCost}
+                formatter={periodIncludesPreOpening ? () => "N/A" : (n) => formatCurrency(n)}
+                change={noLabourData ? null : calcChange(labourCost, compLabourCost)}
+                noCompData={noLabourData}
                 invertColor
-                subtitle={`Cafe: ${formatCurrency(labourBySide.cafe)} · Retail: ${formatCurrency(labourBySide.retail)}`}
+                subtitle={periodIncludesPreOpening ? "No shift data before Aug 20" : `Cafe: ${formatCurrency(labourBySide.cafe)} · Retail: ${formatCurrency(labourBySide.retail)}`}
                 delay={6}
               />
               <KpiCard
                 label="Labour vs Sales %"
-                value={labourRatio}
-                formatter={(n) => formatPercent(n)}
-                change={noCompLabour ? null : calcChange(labourRatio, compLabourRatio)}
-                noCompData={noCompLabour}
+                value={periodIncludesPreOpening ? 0 : labourRatio}
+                formatter={periodIncludesPreOpening ? () => "N/A" : (n) => formatPercent(n)}
+                change={noLabourData ? null : calcChange(labourRatio, compLabourRatio)}
+                noCompData={noLabourData}
                 invertColor
-                subtitle={`Cafe: ${formatPercent(cafeLabourRatio)} · Retail: ${formatPercent(retailLabourRatio)}`}
+                subtitle={periodIncludesPreOpening ? "No shift data before Aug 20" : `Cafe: ${formatPercent(cafeLabourRatio)} · Retail: ${formatPercent(retailLabourRatio)}`}
                 delay={7}
               />
             </div>
@@ -397,22 +406,22 @@ export default function OverviewPage() {
               />
               <KpiCard
                 label="Real Profit Margin"
-                value={realMargin}
-                formatter={(n) => formatPercent(n)}
-                change={noCompLabour ? null : calcChange(realMargin, compRealMargin)}
-                noCompData={noCompLabour}
-                subtitle={`Cafe: ${formatPercent(cafeMargin - cafeLabourRatio)} · Retail: ${formatPercent(retailMargin - retailLabourRatio)}`}
-                tooltip={`Margin ${formatPercent(effectiveMargin)} − Labour ${formatPercent(labourRatio)}. Weighted by sales mix: Cafe margin (${formatPercent(cafeMargin)}) − Cafe labour (${formatPercent(cafeLabourRatio)}), Retail margin (${formatPercent(retailMargin)}) − Retail labour (${formatPercent(retailLabourRatio)}).`}
+                value={periodIncludesPreOpening ? 0 : realMargin}
+                formatter={periodIncludesPreOpening ? () => "N/A" : (n) => formatPercent(n)}
+                change={noLabourData ? null : calcChange(realMargin, compRealMargin)}
+                noCompData={noLabourData}
+                subtitle={periodIncludesPreOpening ? "No shift data before Aug 20" : `Cafe: ${formatPercent(cafeMargin - cafeLabourRatio)} · Retail: ${formatPercent(retailMargin - retailLabourRatio)}`}
+                tooltip={periodIncludesPreOpening ? "Labour data not available for periods before Aug 20, 2025" : `Margin ${formatPercent(effectiveMargin)} − Labour ${formatPercent(labourRatio)}. Weighted by sales mix: Cafe margin (${formatPercent(cafeMargin)}) − Cafe labour (${formatPercent(cafeLabourRatio)}), Retail margin (${formatPercent(retailMargin)}) − Retail labour (${formatPercent(retailLabourRatio)}).`}
                 accent
                 delay={9}
               />
               <KpiCard
                 label="Real Profit"
-                value={realProfitDollar}
-                formatter={(n) => formatCurrency(n)}
-                change={noCompLabour ? null : calcChange(realProfitDollar, compRealProfitDollar)}
-                noCompData={noCompLabour}
-                subtitle="After COGS + labour"
+                value={periodIncludesPreOpening ? 0 : realProfitDollar}
+                formatter={periodIncludesPreOpening ? () => "N/A" : (n) => formatCurrency(n)}
+                change={noLabourData ? null : calcChange(realProfitDollar, compRealProfitDollar)}
+                noCompData={noLabourData}
+                subtitle={periodIncludesPreOpening ? "No shift data before Aug 20" : "After COGS + labour"}
                 tooltip="Take-home profit: Net Sales × Avg Margin% − Labour Cost. Excludes rent, utilities, and overheads."
                 accent
                 delay={10}
@@ -436,6 +445,7 @@ export default function OverviewPage() {
               categoryDetailData={categoryDetailData}
               compCategoryDetailData={compCategoryDetailData}
               historicalCategoryDetailData={historicalCategoryDetailData}
+              periodStartDate={currentRange.startDate}
             />
           </section>
 

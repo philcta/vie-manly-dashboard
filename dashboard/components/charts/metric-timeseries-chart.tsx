@@ -166,6 +166,8 @@ interface MetricTimeSeriesChartProps {
     compCategoryDetailData?: CategoryDailyData[];
     /** Per-category detail stats for historical 6-month lookback (moving averages) */
     historicalCategoryDetailData?: CategoryDailyData[];
+    /** Start date of the selected period — used to grey out ratio metrics for pre-opening */
+    periodStartDate?: string;
 }
 
 // ── Helper: format date label ───────────────────────────────────
@@ -271,12 +273,16 @@ export function MetricTimeSeriesChart({
     categoryDetailData = [],
     compCategoryDetailData = [],
     historicalCategoryDetailData = [],
+    periodStartDate,
 }: MetricTimeSeriesChartProps) {
     const [metric, setMetric] = useState<MetricKey>("net_sales");
     const [activeTrends, setActiveTrends] = useState<Set<TrendType>>(new Set(["ma_3mo"]));
     const [side, setSide] = useState<SideType>("all");
     const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
     const def = METRICS[metric];
+
+    // Check if period includes pre-opening dates (no labour data)
+    const periodIncludesPreOpening = periodStartDate ? periodStartDate < STORE_OPENING_DATE : false;
 
     // Build unique category list from detail data
     const allCategories = useMemo(() => {
@@ -294,6 +300,13 @@ export function MetricTimeSeriesChart({
             setMetric("net_sales");
         }
     };
+
+    // Auto-switch away from ratio metrics when period includes pre-opening
+    useEffect(() => {
+        if (periodIncludesPreOpening && (metric === "real_profit_pct" || metric === "labour_pct")) {
+            setMetric("net_sales");
+        }
+    }, [periodIncludesPreOpening, metric]);
 
     // ── Build chart data based on selected metric + side ──
 
@@ -534,7 +547,8 @@ export function MetricTimeSeriesChart({
                 {/* Metric pills */}
                 <div className="flex items-center gap-1 rounded-lg border border-border bg-background p-0.5">
                     {METRIC_ORDER.map((key) => {
-                        const disabled = side === "category" && CATEGORY_INCOMPATIBLE.has(key);
+                        const disabled = (side === "category" && CATEGORY_INCOMPATIBLE.has(key))
+                            || (periodIncludesPreOpening && (key === "real_profit_pct" || key === "labour_pct"));
                         return (
                             <button
                                 key={key}
