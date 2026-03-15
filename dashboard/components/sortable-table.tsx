@@ -118,6 +118,14 @@ export function SortableTable<T extends Record<string, unknown>>({
     }, []);
     const useMobileCards = isMobile && !!mobileCardRender;
 
+    // Paginated mobile cards — avoid rendering 6000+ DOM nodes at once
+    const MOBILE_PAGE_SIZE = 50;
+    const [mobileDisplayCount, setMobileDisplayCount] = useState(MOBILE_PAGE_SIZE);
+    // Reset when data/filters change
+    useEffect(() => {
+        setMobileDisplayCount(MOBILE_PAGE_SIZE);
+    }, [data]);
+
     // Debounce search to 150ms — instant feel, stops re-renders mid-typing
     const debouncedQuery = useDebouncedValue(searchQuery, 150);
 
@@ -242,8 +250,8 @@ export function SortableTable<T extends Record<string, unknown>>({
                     {headerActions}
                 </div>
                 <div className="flex items-center gap-2">
-                    {/* Group expand/collapse toggles */}
-                    {groups.size > 0 && (
+                    {/* Group expand/collapse toggles — hidden on mobile cards */}
+                    {!useMobileCards && groups.size > 0 && (
                         <div className="flex items-center gap-1 mr-2">
                             {Array.from(groups).map((groupName) => {
                                 const isExpanded = expandedGroups.has(groupName);
@@ -312,7 +320,7 @@ export function SortableTable<T extends Record<string, unknown>>({
 
             {/* Table (desktop) or Cards (mobile) */}
             {useMobileCards ? (
-                <div className="divide-y divide-[#F0F0EE] max-h-[480px] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+                <div className="max-h-[600px] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
                     {sortedData.length === 0 ? (
                         <div className="px-4 py-8 text-center text-muted-foreground text-sm">
                             {searchQuery
@@ -320,11 +328,23 @@ export function SortableTable<T extends Record<string, unknown>>({
                                 : "No data available"}
                         </div>
                     ) : (
-                        sortedData.map((row, i) => (
-                            <div key={i}>
-                                {mobileCardRender!(row, i)}
+                        <>
+                            <div className="divide-y divide-[#F0F0EE]">
+                                {sortedData.slice(0, mobileDisplayCount).map((row, i) => (
+                                    <div key={i}>
+                                        {mobileCardRender!(row, i)}
+                                    </div>
+                                ))}
                             </div>
-                        ))
+                            {mobileDisplayCount < sortedData.length && (
+                                <button
+                                    onClick={() => setMobileDisplayCount((c) => c + MOBILE_PAGE_SIZE)}
+                                    className="w-full py-3 text-sm font-medium text-olive hover:text-olive/80 border-t border-[#F0F0EE] bg-[#FAFAF8] transition-colors cursor-pointer"
+                                >
+                                    Show more ({Math.min(MOBILE_PAGE_SIZE, sortedData.length - mobileDisplayCount)} of {sortedData.length - mobileDisplayCount} remaining)
+                                </button>
+                            )}
+                        </>
                     )}
                 </div>
             ) : (

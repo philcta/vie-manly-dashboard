@@ -93,6 +93,16 @@ export default function StaffPage() {
     const [sortCol, setSortCol] = useState<"name" | "role" | "total" | "weekday" | "saturday" | "sunday" | "publicHoliday" | "hours" | "breaks">("total");
     const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
+    // Track mobile viewport
+    const [isMobile, setIsMobile] = useState(false);
+    useEffect(() => {
+        const mql = window.matchMedia("(max-width: 767px)");
+        const update = () => setIsMobile(mql.matches);
+        update();
+        mql.addEventListener("change", update);
+        return () => mql.removeEventListener("change", update);
+    }, []);
+
     // ── Chart filter: which series are visible ──
     const [activeSegments, setActiveSegments] = useState<Set<SegmentKey>>(
         new Set(["adultCafe", "adultRetail", "teenCafe", "teenRetail"])
@@ -574,130 +584,186 @@ export default function StaffPage() {
                         )}
 
                         <div className="max-h-[480px] overflow-y-auto">
-                            <table className="w-full text-sm table-fixed">
-                                <colgroup>
-                                    <col style={{ width: "16%" }} />
-                                    <col style={{ width: "11%" }} />
-                                    <col style={{ width: "11%" }} />
-                                    <col style={{ width: "11%" }} />
-                                    <col style={{ width: "11%" }} />
-                                    <col style={{ width: "11%" }} />
-                                    <col style={{ width: "11%" }} />
-                                    <col style={{ width: "9%" }} />
-                                    <col style={{ width: "6%" }} />
-                                </colgroup>
-                                <thead className="sticky top-0 z-10">
-                                    <tr className="bg-[#FAFAF8]">
-                                        <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-left" onClick={() => toggleSort("name")}>
-                                            <span className="inline-flex items-center gap-1">Name<SortIcon col="name" /></span>
-                                        </th>
-                                        <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-left" onClick={() => toggleSort("role")}>
-                                            <span className="inline-flex items-center gap-1">Role<SortIcon col="role" /></span>
-                                        </th>
-                                        <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("total")}>
-                                            <span className="inline-flex items-center gap-1 float-right">Total<SortIcon col="total" /></span>
-                                        </th>
-                                        <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("weekday")}>
-                                            <span className="inline-flex items-center gap-1 float-right">Weekday<SortIcon col="weekday" /></span>
-                                        </th>
-                                        <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("saturday")}>
-                                            <span className="inline-flex items-center gap-1 float-right">Saturday<SortIcon col="saturday" /></span>
-                                        </th>
-                                        <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("sunday")}>
-                                            <span className="inline-flex items-center gap-1 float-right">Sunday<SortIcon col="sunday" /></span>
-                                        </th>
-                                        <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("publicHoliday")}>
-                                            <span className="inline-flex items-center gap-1 float-right">Pub Hol.<SortIcon col="publicHoliday" /></span>
-                                        </th>
-                                        <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("hours")}>
-                                            <span className="inline-flex items-center gap-1 float-right">Hours<SortIcon col="hours" /></span>
-                                        </th>
-                                        <th className="px-2 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-center" onClick={() => toggleSort("breaks")} title="Shifts with 30-min auto-break (>6h15)">
-                                            <span className="inline-flex items-center justify-center gap-1">Brk<SortIcon col="breaks" /></span>
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {sortedEarnings.map((r, i) => (
-                                        <tr
-                                            key={r.name}
-                                            className={`border-t border-border transition-colors ${i % 2 === 0 ? "bg-white" : "bg-[#FAFAF8]/50"
-                                                } hover:bg-olive-surface/30`}
-                                        >
-                                            <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap truncate">
-                                                {r.name}
-                                            </td>
-                                            <td className="px-4 py-3 text-muted-foreground whitespace-nowrap truncate text-xs">{r.jobTitle}</td>
-                                            <td className="px-3 py-3 text-right tabular-nums font-semibold text-foreground">
-                                                {r.total > 0 ? formatCurrency(r.total) : (
-                                                    <span className="text-muted-foreground font-normal">$0</span>
-                                                )}
-                                            </td>
-                                            <td className="px-3 py-3 text-right tabular-nums text-foreground">
-                                                {r.weekday > 0 ? (
-                                                    <div>
-                                                        <div className="font-medium">{formatCurrency(r.weekday)}</div>
-                                                        <div className="text-[10px] text-muted-foreground">{r.weekdayHours.toFixed(1)}h</div>
+                            {/* Mobile card view */}
+                            {isMobile ? (
+                                <div className="divide-y divide-border">
+                                    {sortedEarnings.length === 0 ? (
+                                        <div className="px-4 py-8 text-center text-muted-foreground text-sm">
+                                            No earnings data for this pay period.
+                                        </div>
+                                    ) : (
+                                        sortedEarnings.map((r) => (
+                                            <div key={r.name} className="px-4 py-3 space-y-1.5">
+                                                <div className="flex items-center justify-between">
+                                                    <div className="min-w-0 mr-2">
+                                                        <span className="font-semibold text-sm text-foreground block truncate">{r.name}</span>
+                                                        <span className="text-[11px] text-muted-foreground">{r.jobTitle}</span>
                                                     </div>
-                                                ) : (
-                                                    <span className="text-muted-foreground">$0</span>
-                                                )}
-                                            </td>
-                                            <td className="px-3 py-3 text-right tabular-nums text-foreground">
-                                                {r.saturday > 0 ? (
-                                                    <div>
-                                                        <div className="font-medium">{formatCurrency(r.saturday)}</div>
-                                                        <div className="text-[10px] text-muted-foreground">{r.saturdayHours.toFixed(1)}h</div>
-                                                    </div>
-                                                ) : (
-                                                    <span className="text-muted-foreground">$0</span>
-                                                )}
-                                            </td>
-                                            <td className="px-3 py-3 text-right tabular-nums text-foreground">
-                                                {r.sunday > 0 ? (
-                                                    <div>
-                                                        <div className="font-medium">{formatCurrency(r.sunday)}</div>
-                                                        <div className="text-[10px] text-muted-foreground">{r.sundayHours.toFixed(1)}h</div>
-                                                    </div>
-                                                ) : (
-                                                    <span className="text-muted-foreground">$0</span>
-                                                )}
-                                            </td>
-                                            <td className="px-3 py-3 text-right tabular-nums text-foreground">
-                                                {r.publicHoliday > 0 ? (
-                                                    <div>
-                                                        <div className="font-medium">{formatCurrency(r.publicHoliday)}</div>
-                                                        <div className="text-[10px] text-muted-foreground">{r.publicHolidayHours.toFixed(1)}h</div>
-                                                    </div>
-                                                ) : (
-                                                    <span className="text-muted-foreground">$0</span>
-                                                )}
-                                            </td>
-                                            <td className="px-3 py-3 text-right tabular-nums text-foreground font-medium">
-                                                {r.totalHours > 0 ? `${r.totalHours.toFixed(1)}h` : (
-                                                    <span className="text-muted-foreground font-normal">0</span>
-                                                )}
-                                            </td>
-                                            <td className="px-2 py-3 text-center">
-                                                {r.breaks > 0 ? (
-                                                    <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
-                                                        {r.breaks}
+                                                    <span className="text-sm font-bold text-foreground tabular-nums whitespace-nowrap">
+                                                        {r.total > 0 ? formatCurrency(r.total) : "$0"}
                                                     </span>
-                                                ) : (
-                                                    <span className="text-muted-foreground">—</span>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    {sortedEarnings.length === 0 && (
-                                        <tr>
-                                            <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground text-sm">
-                                                No earnings data for this pay period.
-                                            </td>
-                                        </tr>
+                                                </div>
+                                                <div className="grid grid-cols-4 gap-1.5 text-xs">
+                                                    <div>
+                                                        <span className="text-muted-foreground block">Weekday</span>
+                                                        <span className="font-medium tabular-nums">{r.weekday > 0 ? formatCurrency(r.weekday) : "$0"}</span>
+                                                        {r.weekdayHours > 0 && <span className="text-[10px] text-muted-foreground block">{r.weekdayHours.toFixed(1)}h</span>}
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-muted-foreground block">Sat</span>
+                                                        <span className="font-medium tabular-nums">{r.saturday > 0 ? formatCurrency(r.saturday) : "$0"}</span>
+                                                        {r.saturdayHours > 0 && <span className="text-[10px] text-muted-foreground block">{r.saturdayHours.toFixed(1)}h</span>}
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-muted-foreground block">Sun</span>
+                                                        <span className="font-medium tabular-nums">{r.sunday > 0 ? formatCurrency(r.sunday) : "$0"}</span>
+                                                        {r.sundayHours > 0 && <span className="text-[10px] text-muted-foreground block">{r.sundayHours.toFixed(1)}h</span>}
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-muted-foreground block">P.Hol</span>
+                                                        <span className="font-medium tabular-nums">{r.publicHoliday > 0 ? formatCurrency(r.publicHoliday) : "$0"}</span>
+                                                        {r.publicHolidayHours > 0 && <span className="text-[10px] text-muted-foreground block">{r.publicHolidayHours.toFixed(1)}h</span>}
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                                                    <span>{r.totalHours > 0 ? `${r.totalHours.toFixed(1)}h total` : "0h"}</span>
+                                                    {r.breaks > 0 && (
+                                                        <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
+                                                            {r.breaks} break{r.breaks > 1 ? "s" : ""}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))
                                     )}
-                                </tbody>
-                            </table>
+                                </div>
+                            ) : (
+                                /* Desktop table */
+                                <table className="w-full text-sm table-fixed">
+                                    <colgroup>
+                                        <col style={{ width: "16%" }} />
+                                        <col style={{ width: "11%" }} />
+                                        <col style={{ width: "11%" }} />
+                                        <col style={{ width: "11%" }} />
+                                        <col style={{ width: "11%" }} />
+                                        <col style={{ width: "11%" }} />
+                                        <col style={{ width: "11%" }} />
+                                        <col style={{ width: "9%" }} />
+                                        <col style={{ width: "6%" }} />
+                                    </colgroup>
+                                    <thead className="sticky top-0 z-10" style={{ backgroundColor: "#FAFAF8" }}>
+                                        <tr style={{ backgroundColor: "#FAFAF8", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                                            <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-left" onClick={() => toggleSort("name")}>
+                                                <span className="inline-flex items-center gap-1">Name<SortIcon col="name" /></span>
+                                            </th>
+                                            <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-left" onClick={() => toggleSort("role")}>
+                                                <span className="inline-flex items-center gap-1">Role<SortIcon col="role" /></span>
+                                            </th>
+                                            <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("total")}>
+                                                <span className="inline-flex items-center gap-1 float-right">Total<SortIcon col="total" /></span>
+                                            </th>
+                                            <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("weekday")}>
+                                                <span className="inline-flex items-center gap-1 float-right">Weekday<SortIcon col="weekday" /></span>
+                                            </th>
+                                            <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("saturday")}>
+                                                <span className="inline-flex items-center gap-1 float-right">Saturday<SortIcon col="saturday" /></span>
+                                            </th>
+                                            <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("sunday")}>
+                                                <span className="inline-flex items-center gap-1 float-right">Sunday<SortIcon col="sunday" /></span>
+                                            </th>
+                                            <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("publicHoliday")}>
+                                                <span className="inline-flex items-center gap-1 float-right">Pub Hol.<SortIcon col="publicHoliday" /></span>
+                                            </th>
+                                            <th className="px-3 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-right" onClick={() => toggleSort("hours")}>
+                                                <span className="inline-flex items-center gap-1 float-right">Hours<SortIcon col="hours" /></span>
+                                            </th>
+                                            <th className="px-2 py-3 text-xs font-semibold uppercase tracking-wider text-text-body cursor-pointer select-none hover:text-foreground transition-colors text-center" onClick={() => toggleSort("breaks")} title="Shifts with 30-min auto-break (>6h15)">
+                                                <span className="inline-flex items-center justify-center gap-1">Brk<SortIcon col="breaks" /></span>
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {sortedEarnings.map((r, i) => (
+                                            <tr
+                                                key={r.name}
+                                                className={`border-t border-border transition-colors ${i % 2 === 0 ? "bg-white" : "bg-[#FAFAF8]/50"
+                                                    } hover:bg-olive-surface/30`}
+                                            >
+                                                <td className="px-4 py-3 font-medium text-foreground whitespace-nowrap truncate">
+                                                    {r.name}
+                                                </td>
+                                                <td className="px-4 py-3 text-muted-foreground whitespace-nowrap truncate text-xs">{r.jobTitle}</td>
+                                                <td className="px-3 py-3 text-right tabular-nums font-semibold text-foreground">
+                                                    {r.total > 0 ? formatCurrency(r.total) : (
+                                                        <span className="text-muted-foreground font-normal">$0</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-3 py-3 text-right tabular-nums text-foreground">
+                                                    {r.weekday > 0 ? (
+                                                        <div>
+                                                            <div className="font-medium">{formatCurrency(r.weekday)}</div>
+                                                            <div className="text-[10px] text-muted-foreground">{r.weekdayHours.toFixed(1)}h</div>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">$0</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-3 py-3 text-right tabular-nums text-foreground">
+                                                    {r.saturday > 0 ? (
+                                                        <div>
+                                                            <div className="font-medium">{formatCurrency(r.saturday)}</div>
+                                                            <div className="text-[10px] text-muted-foreground">{r.saturdayHours.toFixed(1)}h</div>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">$0</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-3 py-3 text-right tabular-nums text-foreground">
+                                                    {r.sunday > 0 ? (
+                                                        <div>
+                                                            <div className="font-medium">{formatCurrency(r.sunday)}</div>
+                                                            <div className="text-[10px] text-muted-foreground">{r.sundayHours.toFixed(1)}h</div>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">$0</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-3 py-3 text-right tabular-nums text-foreground">
+                                                    {r.publicHoliday > 0 ? (
+                                                        <div>
+                                                            <div className="font-medium">{formatCurrency(r.publicHoliday)}</div>
+                                                            <div className="text-[10px] text-muted-foreground">{r.publicHolidayHours.toFixed(1)}h</div>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">$0</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-3 py-3 text-right tabular-nums text-foreground font-medium">
+                                                    {r.totalHours > 0 ? `${r.totalHours.toFixed(1)}h` : (
+                                                        <span className="text-muted-foreground font-normal">0</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-2 py-3 text-center">
+                                                    {r.breaks > 0 ? (
+                                                        <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
+                                                            {r.breaks}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">—</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {sortedEarnings.length === 0 && (
+                                            <tr>
+                                                <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground text-sm">
+                                                    No earnings data for this pay period.
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            )}
                         </div>
                     </div>
                 </>
