@@ -244,6 +244,29 @@ def main():
         if ws.get("status") != "success":
             print(f"  Status:   {ws.get('status', 'unknown')}")
 
+    # Phase 8: Refresh Materialized Views (for AI Coach speed)
+    print("\n--- PHASE 8: Refresh Materialized Views ---")
+    t0 = time.time()
+    try:
+        SUPA_URL = os.getenv("SUPABASE_URL")
+        SUPA_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        if SUPA_URL and SUPA_KEY:
+            import json, urllib.request
+            # Refresh top members materialized view
+            url = f"{SUPA_URL}/rest/v1/rpc/refresh_top_members_mv"
+            headers = {
+                "apikey": SUPA_KEY,
+                "Authorization": f"Bearer {SUPA_KEY}",
+                "Content-Type": "application/json",
+            }
+            req = urllib.request.Request(url, data=b"{}", headers=headers, method="POST")
+            urllib.request.urlopen(req, timeout=60)
+            print(f"  Phase 8 completed in {time.time() - t0:.1f}s")
+        else:
+            print("  Phase 8 SKIPPED (no Supabase credentials)")
+    except Exception as e:
+        print(f"  Phase 8 FAILED: {e}")
+
     print(f"{'=' * 60}")
 
     # Log to Supabase

@@ -249,6 +249,43 @@ def fetch_current_counts(client, location_id, variation_ids):
     return counts
 
 
+def enrich_catalog_from_supabase(catalog_map):
+    """
+    Enrich catalog_map with vendor and price data from Supabase inventory table.
+    This fills in data that Square's catalog API doesn't easily provide.
+    """
+    print("  Enriching catalog with vendor/price from Supabase...")
+    # Fetch latest inventory snapshot
+    path = "inventory?source_date=eq." + urllib.request.quote("(SELECT MAX(source_date) FROM inventory)")
+    # Simpler: just fetch latest source_date first
+    try:
+        dates = supabase_request("GET", "inventory?select=source_date&order=source_date.desc&limit=1")
+        if dates:
+            latest = dates[0]["source_date"]
+            rows = supabase_request("GET", f"inventory?source_date=eq.{latest}&select=sku,default_vendor,price,categories,default_unit_cost")
+            enrich_count = 0
+            for row in rows:
+                sku = row.get("sku", "")
+                if not sku:
+                    continue
+                # Find matching entries in catalog_map by SKU
+                for var_id, cat in catalog_map.items():
+                    if cat.get("sku") == sku:
+                        if not cat.get("vendor") and row.get("default_vendor"):
+                            cat["vendor"] = row["default_vendor"]
+                        if not cat.get("price") and row.get("price"):
+                            cat["price"] = row["price"]
+                        if not cat.get("category") and row.get("categories"):
+                            cat["category"] = row["categories"]
+                        if not cat.get("unit_cost") and row.get("default_unit_cost"):
+                            cat["unit_cost"] = row["default_unit_cost"]
+                        enrich_count += 1
+            print(f"    Enriched {enrich_count} items with vendor/price data")
+    except Exception as e:
+        print(f"    Warning: could not enrich catalog: {e}")
+    return catalog_map
+
+
 def compute_intelligence(changes_by_var, catalog_map, counts_map):
     """
     Compute per-item intelligence from inventory changes.
@@ -368,6 +405,13 @@ def compute_intelligence(changes_by_var, catalog_map, counts_map):
             "variation_id": var_id,
             "product_name": product_name,
             "sku": sku,
+            # Denormalized for fast RPC (no JOIN needed)
+            "category": cat.get("category", ""),
+            "vendor": cat.get("vendor", ""),
+            "price": cat.get("price", 0),
+            "unit_cost": unit_cost,
+            "margin_pct": round(((cat.get("price", 0) - unit_cost) / cat.get("price", 1) * 100), 1) if cat.get("price", 0) > 0 and unit_cost > 0 else None,
+            # Core metrics
             "last_sold_date": last_sold,
             "units_sold_7d": round(units_sold_7d, 1),
             "units_sold_30d": round(units_sold_30d, 1),
@@ -592,6 +636,9 @@ def run_intelligence_sync(days_back=90):
     
     # 2. Build catalog map
     catalog_map = build_catalog_map(client)
+    
+    # 2b. Enrich with vendor/price from Supabase (for denormalized columns)
+    catalog_map = enrich_catalog_from_supabase(catalog_map)
     
     # 3. Fetch inventory changes from Square (now includes WASTE + DAMAGED)
     changes = fetch_all_inventory_changes(client, location_id, days_back)
