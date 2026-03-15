@@ -51,7 +51,7 @@ async function buildBusinessContext(): Promise<string> {
             .eq("day_type", "all")
             .order("week_start", { ascending: false })
             .order("total_net_sales", { ascending: false })
-            .limit(80),
+            .limit(200),
         supabase
             .from("weekly_member_stats")
             .select("*")
