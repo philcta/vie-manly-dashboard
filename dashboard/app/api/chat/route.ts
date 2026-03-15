@@ -29,9 +29,8 @@ async function buildBusinessContext(): Promise<string> {
         staffStats,
         hourlyPatterns,
         dowStats,
-        inventoryStats,
-        deadStockItems,
-        alertCounts,
+        inventoryAiContext,
+        inventoryCategoryStats,
         topMembers,
         signUpsByDow,
         kpiTargets,
@@ -85,25 +84,15 @@ async function buildBusinessContext(): Promise<string> {
             .order("week_start", { ascending: false })
             .limit(28),
 
-        // NEW: Inventory stats (stock value, alert counts by category)
+        // Inventory: rich AI context (top sellers, reorder, dead stock, vendors, KPIs)
+        supabase.rpc("get_inventory_ai_context"),
+
+        // Category-level inventory stats (weekly trends)
         supabase
             .from("weekly_inventory_stats")
             .select("*")
             .order("week_start", { ascending: false })
             .limit(20),
-
-        // NEW: Dead stock / overstock items from inventory_intelligence
-        supabase
-            .from("inventory_intelligence")
-            .select("product_name,sku,reorder_alert,current_quantity,days_of_stock,last_sold_date,revenue_30d,sales_velocity")
-            .in("reorder_alert", ["DEAD", "OVERSTOCK", "CRITICAL"])
-            .order("revenue_30d", { ascending: true })
-            .limit(20),
-
-        // NEW: Alert summary counts
-        supabase
-            .from("inventory_intelligence")
-            .select("reorder_alert"),
 
         // NEW: Top 10 spending members (last 30 days)
         supabase.rpc("get_top_members", { days_back: 30 }).limit(10),
@@ -212,39 +201,78 @@ async function buildBusinessContext(): Promise<string> {
         .map((h) => `${h.hour}:00 (${h.pct_of_daily_total?.toFixed(1)}% of daily)`)
         .join(", ");
 
-    // ── Inventory Intelligence ───────────────────────────────────────
-    const invRows = inventoryStats.data || [];
-    const latestInvWeek = invRows[0]?.week_start;
-    const invContext = invRows
-        .filter((r) => r.week_start === latestInvWeek)
+    // ── Inventory Intelligence (Rich AI Context) ─────────────────────
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const invAi: any = inventoryAiContext.data || {};
+    const invSummary = invAi.summary || {};
+
+    const invKpiLine = `Total SKUs: ${invSummary.total_skus || 0}, In stock: ${invSummary.in_stock || 0}, ` +
+        `Out-of-stock (still selling): ${invSummary.out_of_stock_active || 0}, ` +
+        `Critical: ${invSummary.critical_count || 0}, Low: ${invSummary.low_count || 0}, ` +
+        `Dead: ${invSummary.dead_count || 0}, Overstock: ${invSummary.overstock_count || 0}, ` +
+        `Avg sell-through: ${invSummary.avg_sell_through || 0}%, ` +
+        `30d revenue from tracked items: $${invSummary.total_revenue_30d || 0}, ` +
+        `30d units sold: ${invSummary.total_units_sold_30d || 0}`;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const topSellers = (invAi.top_sellers || []).map((s: any) =>
+        `${s.product_name} (${s.category || "uncategorized"}): $${s.revenue_30d?.toFixed(0)} rev/30d, ` +
+        `${s.units_sold_30d} sold/30d, Velocity ${s.sales_velocity}/mo, ` +
+        `Sell-through ${s.sell_through_pct}%, ` +
+        `Price $${s.price || "?"}, Cost $${s.unit_cost || "?"}, Margin ${s.margin_pct ?? "?"}%, ` +
+        `Stock: ${s.qty} (${s.days_of_stock?.toFixed(0) || "?"} days), Alert: ${s.reorder_alert}`
+    ).join("\n");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const reorderItems = (invAi.reorder_urgents || []).map((r: any) =>
+        `⚠️ ${r.product_name} (${r.category || "?"}): ${r.reorder_alert}, ` +
+        `Qty ${r.qty}, ${r.days_of_stock?.toFixed(0)} days left, ` +
+        `Velocity ${r.sales_velocity}/mo, Sell-through ${r.sell_through_pct}%, ` +
+        `Vendor: ${r.vendor || "unknown"}, Suggested order: ${r.suggested_order_qty} units`
+    ).join("\n");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const oosItems = (invAi.out_of_stock || []).map((o: any) =>
+        `❌ ${o.product_name} (${o.category || "?"}): OUT OF STOCK, ` +
+        `Was selling ${o.units_sold_30d}/mo ($${o.revenue_30d?.toFixed(0)}/mo), ` +
+        `Last sold ${o.last_sold || "?"},  Last received ${o.last_received || "?"}, ` +
+        `Vendor: ${o.vendor || "unknown"}`
+    ).join("\n");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const deadItems = (invAi.dead_stock || []).map((d: any) =>
+        `💀 ${d.product_name} (${d.category || "?"}): Qty ${d.qty}, ` +
+        `Capital tied up: $${d.tied_up_capital?.toFixed(0) || "0"}, ` +
+        `Last sold: ${d.last_sold || "never"}, Vendor: ${d.vendor || "?"}`
+    ).join("\n");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const overstockItems = (invAi.overstock || []).map((o: any) =>
+        `📦 ${o.product_name} (${o.category || "?"}): Qty ${o.qty}, ` +
+        `${o.days_of_stock?.toFixed(0)} days of stock, Velocity ${o.sales_velocity}/mo, ` +
+        `Capital tied up: $${o.tied_up_capital?.toFixed(0) || "0"}`
+    ).join("\n");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vendorSummary = (invAi.vendors || []).map((v: any) =>
+        `${v.vendor}: ${v.total_items} items, $${v.revenue_30d} rev/30d, ` +
+        `${v.out_of_stock} out of stock, ${v.critical_items} critical, ` +
+        `Avg sell-through: ${v.avg_sell_through}%`
+    ).join("\n");
+
+    // Category-level weekly trends
+    const catInvRows = inventoryCategoryStats.data || [];
+    const latestInvWeek = catInvRows[0]?.week_start;
+    const invCategoryContext = catInvRows
+        .filter((r: Record<string, unknown>) => r.week_start === latestInvWeek)
         .map(
-            (r) =>
-                `${r.category} (${r.side}): ${r.total_skus} SKUs, ${r.in_stock_skus} in stock, ${r.zero_stock_skus} out of stock, ` +
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (r: any) =>
+                `${r.category} (${r.side}): ${r.total_skus} SKUs, ${r.in_stock_skus} in stock, ` +
                 `Stock value $${r.stock_value_ex_gst?.toFixed(0)}, Margin ${r.category_margin_pct?.toFixed(1)}%, ` +
-                `Velocity ${r.sales_velocity?.toFixed(1)}/day, ${r.days_of_stock?.toFixed(0)} days of stock, ` +
-                `Alerts: ${r.critical_count} critical, ${r.low_count} low, ${r.dead_count} dead, ${r.overstock_count} overstock`
+                `Velocity ${r.sales_velocity?.toFixed(1)}/mo, ${r.days_of_stock?.toFixed(0)} days of stock`
         )
         .join("\n");
-
-    // Dead/overstock/critical items
-    const deadItems = (deadStockItems.data || [])
-        .map(
-            (d) =>
-                `${d.product_name}: ${d.reorder_alert}, Qty ${d.current_quantity}, ` +
-                `${d.days_of_stock?.toFixed(0) ?? "N/A"} days stock, Last sold ${d.last_sold_date ?? "never"}, ` +
-                `Rev 30d $${d.revenue_30d?.toFixed(0) ?? "0"}`
-        )
-        .join("\n");
-
-    // Alert summary counts
-    const alertData = alertCounts.data || [];
-    const alertSummary: Record<string, number> = {};
-    for (const r of alertData) {
-        alertSummary[r.reorder_alert] = (alertSummary[r.reorder_alert] || 0) + 1;
-    }
-    const alertLine = Object.entries(alertSummary)
-        .map(([k, v]) => `${k}: ${v}`)
-        .join(", ");
 
     // ── Top Members Leaderboard ──────────────────────────────────────
     const topMemberRows = topMembers.data || [];
@@ -295,12 +323,29 @@ ${peakHours || "No hourly data yet."}
 ### Best Day (Latest Week)
 ${bestDay ? `${bestDay.dow_name}: $${bestDay.total_net_sales?.toLocaleString()}, ${bestDay.total_transactions} txns, Labour ${bestDay.labour_pct?.toFixed(1)}%` : "No data yet."}
 
-### Inventory Overview (by Category)
-${invContext || "No inventory stats yet."}
-- Alert totals: ${alertLine || "No alerts"}
+### Inventory KPIs
+${invKpiLine}
 
-### Stock Requiring Action (Dead / Overstock / Critical)
-${deadItems || "No problematic stock items."}
+### Top 15 Best-Selling Items (Last 30 Days) — with Margins & Stock
+${topSellers || "No sales data yet."}
+
+### ⚠️ Reorder Urgently (Low/Critical Stock on Fast Sellers)
+${reorderItems || "No urgent reorders."}
+
+### ❌ Out of Stock — Lost Sales Opportunity
+${oosItems || "No out-of-stock items with active demand."}
+
+### 💀 Dead Stock — Capital Tied Up (In stock but zero sales 90d+)
+${deadItems || "No dead stock."}
+
+### 📦 Overstock (90+ days of stock)
+${overstockItems || "No overstocked items."}
+
+### Vendor Performance (Top 10 by Revenue)
+${vendorSummary || "No vendor data."}
+
+### Inventory by Category
+${invCategoryContext || "No category inventory data."}
 
 ### KPI Targets (Business Improvement Plan)
 ${(() => {
@@ -333,6 +378,17 @@ Your role:
 - Be concise but insightful; use bullet points and bold key takeaways
 - Speak as a friendly, experienced business consultant
 - When data is missing or insufficient, say so honestly
+
+Inventory & Stock Expertise:
+- You have deep knowledge of the store's inventory: best sellers, margins, stock levels, sell-through rates, vendor performance, and problem items
+- When asked about stock or inventory, provide specific item-level insights, not just general advice
+- **Sell-through rate** = units sold ÷ (opening stock + received) × 100. Below 40% = slow mover. Above 80% = selling well.
+- **Days of stock** = current qty ÷ daily sales rate. Below 7 days on a fast seller = urgent reorder. Above 90 days = overstock.
+- **Sales velocity** = units sold per month. Use this to calculate reorder quantities (velocity ÷ 30 × lead time days × 1.2 safety buffer)
+- When recommending reorders, group them by vendor so the owner can place one combined order
+- When asked about dead stock, calculate total capital tied up and suggest clearance strategies (discount, bundle, donate)
+- When comparing items, always mention margin % — a high-revenue item with low margin may be less profitable than a moderate seller with high margin
+- Identify out-of-stock items that were selling well — these represent lost revenue opportunities
 
 Formatting:
 - Use markdown for structure (headings, bold, bullet points)
