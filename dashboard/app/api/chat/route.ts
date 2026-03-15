@@ -1,7 +1,8 @@
 import { openai } from "@ai-sdk/openai";
-import { streamText, convertToModelMessages } from "ai";
+import { streamText, convertToModelMessages, stepCountIs } from "ai";
 import type { UIMessage } from "ai";
 import { createClient } from "@supabase/supabase-js";
+import { z } from "zod";
 
 export const runtime = "edge";
 export const maxDuration = 30;
@@ -470,6 +471,14 @@ Formatting:
 - For calculations, write them in plain text like: "Labour % = $4,746 / $30,624 × 100 = 15.5%"
 - Use dollar signs for currency ($1,234) and % for percentages (15.5%)
 - Use simple tables with pipes (|) when comparing data
+
+## Available Tools
+You have access to live database query tools. Use them when:
+- **lookup_product**: User asks about a SPECIFIC product not in your top 15 list (e.g. "How is kombucha selling?", "Tell me about NURI sardines")
+- **lookup_category**: User asks about ALL products in a category (e.g. "Show me everything in Cafe Drinks", "What tea products do we have?")
+- **get_daily_sales**: User asks about daily trends or specific days (e.g. "How was Monday?", "Show me daily sales this week")
+- **get_mtd_summary**: User asks about month-to-date performance (e.g. "How are we doing this month?", "MTD sales?")
+Do NOT call tools for questions you can already answer from the Business Data context above. Only call tools when you need specific data not in the context.
 `;
 
 // ── Route handler ────────────────────────────────────────────────────
@@ -504,6 +513,47 @@ export async function POST(req: Request) {
         model: openai("gpt-4o"),
         system: `${SYSTEM_PROMPT}\n\n## Current Business Data\n\n${context}`,
         messages: modelMessages,
+        stopWhen: stepCountIs(3),
+        tools: {
+            lookup_product: {
+                description: "Search for a specific product by name in the inventory. Returns up to 10 matches with full metrics (sales, stock, margin, trends). Use when the user asks about a product not in the top 15 sellers list.",
+                inputSchema: z.object({
+                    search_term: z.string().describe("Product name or partial name to search for"),
+                }),
+                execute: async ({ search_term }: { search_term: string }) => {
+                    const { data } = await supabase.rpc("lookup_product", { search_term });
+                    return data || [];
+                },
+            },
+            lookup_category: {
+                description: "Get all products in a specific category with full metrics. Use when the user asks about a whole category or wants to see all items in a category.",
+                inputSchema: z.object({
+                    category_name: z.string().describe("Category name or partial name (e.g. 'Cafe Drinks', 'Tea', 'Smoothie')"),
+                }),
+                execute: async ({ category_name }: { category_name: string }) => {
+                    const { data } = await supabase.rpc("lookup_category_products", { cat_name: category_name });
+                    return data || [];
+                },
+            },
+            get_daily_sales: {
+                description: "Get day-by-day sales breakdown for the last N days. Use when the user asks about specific days, daily trends, or day-level performance.",
+                inputSchema: z.object({
+                    num_days: z.number().min(1).max(90).default(14).describe("Number of days to retrieve (default 14)"),
+                }),
+                execute: async ({ num_days }: { num_days: number }) => {
+                    const { data } = await supabase.rpc("get_daily_sales", { num_days });
+                    return data || [];
+                },
+            },
+            get_mtd_summary: {
+                description: "Get month-to-date summary (total sales, transactions, avg transaction, unique customers). Use when the user asks about this month's performance.",
+                inputSchema: z.object({}),
+                execute: async () => {
+                    const { data } = await supabase.rpc("get_mtd_summary");
+                    return data || {};
+                },
+            },
+        },
         onFinish: async ({ text }) => {
             // Save assistant response
             if (sessionId) {
