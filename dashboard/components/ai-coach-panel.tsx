@@ -15,7 +15,12 @@ import {
     Home,
     FileText,
     Minus,
+    Download,
+    Clock,
+    ChevronLeft,
 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { exportConversationToPdf } from "@/lib/export-pdf";
 
 function generateSessionId() {
     return `session_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -282,9 +287,18 @@ function getMessageText(msg: { content?: string; parts?: Array<{ type: string; t
     return msg.content || "";
 }
 
+interface SavedConversation {
+    id: string;
+    session_id: string;
+    title: string;
+    messages: { role: string; content: string; createdAt?: string }[];
+    created_at: string;
+    updated_at: string;
+}
+
 export default function AiCoachPanel() {
     const [isOpen, setIsOpen] = useState(false);
-    const [sessionId] = useState(generateSessionId);
+    const [sessionId, setSessionId] = useState(generateSessionId);
     const [input, setInput] = useState("");
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -295,6 +309,13 @@ export default function AiCoachPanel() {
     const [showDocs, setShowDocs] = useState(false);
     const docsRef = useRef<HTMLDivElement>(null);
 
+    // History state
+    const [showHistory, setShowHistory] = useState(false);
+    const [savedConversations, setSavedConversations] = useState<SavedConversation[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const lastSavedCountRef = useRef(0);
+    const conversationCreatedRef = useRef<string | null>(null);
+
     const { messages, sendMessage, status, setMessages } =
         useChat({
             transport: new TextStreamChatTransport({
@@ -304,6 +325,94 @@ export default function AiCoachPanel() {
         });
 
     const isLoading = status === "streaming" || status === "submitted";
+
+    // ── Auto-save conversation to Supabase ──
+    useEffect(() => {
+        if (messages.length < 2 || isLoading) return;
+        if (messages.length === lastSavedCountRef.current) return;
+
+        const title = getMessageText(messages[0])?.slice(0, 80) || "Untitled";
+        const serialized = messages.map((m) => ({
+            role: m.role,
+            content: getMessageText(m),
+            createdAt: (m as unknown as { createdAt?: Date })?.createdAt
+                ? new Date((m as unknown as { createdAt: Date }).createdAt).toISOString()
+                : new Date().toISOString(),
+        }));
+
+        const save = async () => {
+            if (conversationCreatedRef.current) {
+                await supabase
+                    .from("ai_coach_conversations")
+                    .update({ messages: serialized, title, updated_at: new Date().toISOString() })
+                    .eq("session_id", sessionId);
+            } else {
+                const { data } = await supabase
+                    .from("ai_coach_conversations")
+                    .insert({ session_id: sessionId, title, messages: serialized })
+                    .select("id")
+                    .single();
+                if (data) conversationCreatedRef.current = data.id;
+            }
+            lastSavedCountRef.current = messages.length;
+        };
+        save();
+    }, [messages, isLoading, sessionId]);
+
+    // ── Load saved conversations ──
+    const loadHistory = useCallback(async () => {
+        setHistoryLoading(true);
+        const { data } = await supabase
+            .from("ai_coach_conversations")
+            .select("*")
+            .order("created_at", { ascending: false })
+            .limit(50);
+        setSavedConversations((data as SavedConversation[]) || []);
+        setHistoryLoading(false);
+    }, []);
+
+    // ── Restore a past conversation ──
+    const restoreConversation = (conv: SavedConversation) => {
+        setMessages(conv.messages.map((m, i) => ({
+            id: `restored-${i}`,
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            createdAt: m.createdAt ? new Date(m.createdAt) : new Date(conv.created_at),
+            parts: [{ type: "text" as const, text: m.content }],
+        })));
+        setSessionId(conv.session_id);
+        conversationCreatedRef.current = conv.id;
+        lastSavedCountRef.current = conv.messages.length;
+        setShowHistory(false);
+    };
+
+    // ── Delete a saved conversation ──
+    const deleteConversation = async (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        await supabase.from("ai_coach_conversations").delete().eq("id", id);
+        setSavedConversations((prev) => prev.filter((c) => c.id !== id));
+    };
+
+    // ── Export current chat to PDF ──
+    const handleExportPdf = () => {
+        if (messages.length === 0) return;
+        const title = getMessageText(messages[0])?.slice(0, 80) || "AI Coach Report";
+        const msgCreatedAt = (messages[0] as unknown as { createdAt?: Date })?.createdAt;
+        exportConversationToPdf({
+            title,
+            messages: messages.map((m) => {
+                const mCreatedAt = (m as unknown as { createdAt?: Date })?.createdAt;
+                return {
+                    role: m.role,
+                    content: getMessageText(m),
+                    createdAt: mCreatedAt ? new Date(mCreatedAt).toISOString() : new Date().toISOString(),
+                };
+            }),
+            createdAt: msgCreatedAt
+                ? new Date(msgCreatedAt).toISOString()
+                : new Date().toISOString(),
+        });
+    };
 
     // Auto-scroll on new messages
     useEffect(() => {
@@ -346,6 +455,10 @@ export default function AiCoachPanel() {
 
     const clearChat = () => {
         setMessages([]);
+        // Reset for new conversation
+        setSessionId(generateSessionId());
+        conversationCreatedRef.current = null;
+        lastSavedCountRef.current = 0;
     };
 
     const doSend = (text: string) => {
@@ -492,6 +605,50 @@ export default function AiCoachPanel() {
                                         <Trash2 className="w-4 h-4" />
                                     </button>
                                 )}
+                                {/* History button */}
+                                <button
+                                    onClick={() => { setShowHistory(!showHistory); if (!showHistory) loadHistory(); setShowDocs(false); }}
+                                    className="p-1.5 rounded-lg transition-all cursor-pointer"
+                                    style={{
+                                        color: showHistory ? "#818CF8" : "#7A7A8A",
+                                        backgroundColor: showHistory ? "rgba(129,140,248,0.15)" : "transparent",
+                                        border: showHistory ? "1px solid rgba(129,140,248,0.3)" : "1px solid transparent",
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        if (!showHistory) {
+                                            e.currentTarget.style.color = "#A5B4FC";
+                                            e.currentTarget.style.backgroundColor = "rgba(129,140,248,0.1)";
+                                        }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        if (!showHistory) {
+                                            e.currentTarget.style.color = "#7A7A8A";
+                                            e.currentTarget.style.backgroundColor = "transparent";
+                                        }
+                                    }}
+                                    title="Conversation history"
+                                >
+                                    <Clock className="w-4 h-4" />
+                                </button>
+                                {/* PDF export — only when chat has messages */}
+                                {messages.length > 0 && (
+                                    <button
+                                        onClick={handleExportPdf}
+                                        className="p-1.5 rounded-lg transition-all cursor-pointer"
+                                        style={{ color: "#7A7A8A" }}
+                                        onMouseEnter={(e) => {
+                                            e.currentTarget.style.color = "#F87171";
+                                            e.currentTarget.style.backgroundColor = "rgba(248,113,113,0.1)";
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.currentTarget.style.color = "#7A7A8A";
+                                            e.currentTarget.style.backgroundColor = "transparent";
+                                        }}
+                                        title="Export to PDF"
+                                    >
+                                        <Download className="w-4 h-4" />
+                                    </button>
+                                )}
                                 {/* ▾ Minimize — collapses panel, keeps conversation alive */}
                                 <button
                                     onClick={() => { setIsOpen(false); setShowDocs(false); }}
@@ -586,7 +743,78 @@ export default function AiCoachPanel() {
                             className="flex-1 overflow-y-auto px-4 py-4 space-y-4 scroll-smooth"
                             style={{ scrollbarWidth: "thin", scrollbarColor: "#EAEAE8 transparent" }}
                         >
-                            {messages.length === 0 ? (
+                            {/* ── History overlay ── */}
+                            {showHistory ? (
+                                <div className="flex flex-col h-full px-1 py-2">
+                                    <div className="flex items-center gap-2 px-3 mb-3">
+                                        <button
+                                            onClick={() => setShowHistory(false)}
+                                            className="p-1 rounded-lg hover:bg-[#F0F0EC] transition-colors cursor-pointer"
+                                        >
+                                            <ChevronLeft className="w-4 h-4 text-[#666]" />
+                                        </button>
+                                        <h4 className="font-semibold text-[#1A1A1A] text-sm">Past Conversations</h4>
+                                    </div>
+                                    {historyLoading ? (
+                                        <div className="flex items-center justify-center py-12">
+                                            <Loader2 className="w-5 h-5 text-[#6B7355] animate-spin" />
+                                        </div>
+                                    ) : savedConversations.length === 0 ? (
+                                        <p className="text-center text-[#aaa] text-xs py-12">No saved conversations yet</p>
+                                    ) : (
+                                        <div className="flex-1 overflow-y-auto space-y-1.5 px-2" style={{ scrollbarWidth: "thin" }}>
+                                            {savedConversations.map((conv) => {
+                                                const qCount = conv.messages.filter((m) => m.role === "user").length;
+                                                const dateStr = new Date(conv.created_at).toLocaleDateString("en-AU", {
+                                                    day: "numeric", month: "short", year: "numeric",
+                                                });
+                                                const timeStr = new Date(conv.created_at).toLocaleTimeString("en-AU", {
+                                                    hour: "2-digit", minute: "2-digit",
+                                                });
+                                                return (
+                                                    <div
+                                                        key={conv.id}
+                                                        onClick={() => restoreConversation(conv)}
+                                                        className="group p-3 rounded-xl border border-[#EAEAE8] hover:border-[#6B7355]/30 hover:bg-[#F8F8F5] transition-all cursor-pointer"
+                                                    >
+                                                        <p className="text-[12px] font-medium text-[#1A1A1A] line-clamp-2 mb-1.5">
+                                                            {conv.title}
+                                                        </p>
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-[10px] text-[#aaa]">
+                                                                {dateStr} · {timeStr} · {qCount} Q{qCount !== 1 ? "s" : ""}
+                                                            </span>
+                                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        exportConversationToPdf({
+                                                                            title: conv.title,
+                                                                            messages: conv.messages,
+                                                                            createdAt: conv.created_at,
+                                                                        });
+                                                                    }}
+                                                                    className="p-1 rounded hover:bg-[#E8E8E4] transition-colors cursor-pointer"
+                                                                    title="Export to PDF"
+                                                                >
+                                                                    <Download className="w-3 h-3 text-[#888]" />
+                                                                </button>
+                                                                <button
+                                                                    onClick={(e) => deleteConversation(conv.id, e)}
+                                                                    className="p-1 rounded hover:bg-red-50 transition-colors cursor-pointer"
+                                                                    title="Delete conversation"
+                                                                >
+                                                                    <Trash2 className="w-3 h-3 text-[#ccc] hover:text-red-400" />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            ) : messages.length === 0 ? (
                                 <div className="flex flex-col h-full overflow-y-auto px-1 py-2"
                                     style={{ scrollbarWidth: "thin", scrollbarColor: "#EAEAE8 transparent" }}>
                                     {/* Welcome */}
