@@ -394,6 +394,8 @@ export default function AiCoachPanel() {
     const lastSavedCountRef = useRef(0);
     const conversationCreatedRef = useRef<string | null>(null);
     const [showFavorites, setShowFavorites] = useState(false);
+    const [favEditMode, setFavEditMode] = useState(false);
+    const [favSelected, setFavSelected] = useState<Set<string>>(new Set());
 
     // Favorites state (persisted to localStorage)
     const FAVORITES_KEY = "vie_coach_favorites";
@@ -870,46 +872,127 @@ export default function AiCoachPanel() {
                                     )}
                                 </div>
                             ) : showFavorites ? (
-                                <div className="flex flex-col h-full px-1 py-2">
-                                    <div className="flex items-center gap-2 px-3 mb-3">
-                                        <button
-                                            onClick={() => setShowFavorites(false)}
-                                            className="p-1 rounded-lg hover:bg-[#F0F0EC] transition-colors cursor-pointer"
-                                        >
-                                            <ChevronLeft className="w-4 h-4 text-[#666]" />
-                                        </button>
-                                        <h4 className="font-semibold text-[#1A1A1A] text-sm">⭐ Saved Questions</h4>
-                                    </div>
-                                    {favorites.length === 0 ? (
-                                        <div className="flex flex-col items-center justify-center py-12 px-4">
-                                            <Star className="w-8 h-8 text-amber-200 mb-3" />
-                                            <p className="text-[#aaa] text-xs text-center mb-1">No favorites yet</p>
-                                            <p className="text-[#ccc] text-[11px] text-center leading-relaxed">
-                                                Browse questions by topic and click the ⭐ star to save your go-to queries
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        <div className="flex-1 overflow-y-auto space-y-1.5 px-2" style={{ scrollbarWidth: "thin" }}>
-                                            {favorites.map((fav) => (
-                                                <div
-                                                    key={fav}
-                                                    className="group flex items-start gap-2 p-3 rounded-xl border border-amber-200/50 bg-amber-50/40 hover:bg-amber-50 hover:border-amber-300/60 transition-all cursor-pointer"
-                                                    onClick={() => { handleSuggestion(fav); setShowFavorites(false); }}
+                                (() => {
+                                    const toggleSelect = (q: string) => {
+                                        setFavSelected(prev => {
+                                            const next = new Set(prev);
+                                            next.has(q) ? next.delete(q) : next.add(q);
+                                            return next;
+                                        });
+                                    };
+                                    const allSelected = favorites.length > 0 && favSelected.size === favorites.length;
+                                    const toggleAll = () => {
+                                        setFavSelected(allSelected ? new Set() : new Set(favorites));
+                                    };
+                                    const deleteSelected = () => {
+                                        favSelected.forEach(q => removeFavorite(q));
+                                        setFavSelected(new Set());
+                                        setFavEditMode(false);
+                                    };
+                                    return (
+                                        <div className="flex flex-col h-full px-1 py-2">
+                                            <div className="flex items-center gap-2 px-3 mb-3">
+                                                <button
+                                                    onClick={() => { setShowFavorites(false); setFavEditMode(false); setFavSelected(new Set()); }}
+                                                    className="p-1 rounded-lg hover:bg-[#F0F0EC] transition-colors cursor-pointer"
                                                 >
-                                                    <Star className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" fill="currentColor" />
-                                                    <p className="flex-1 text-[12px] text-amber-900 leading-snug">{fav}</p>
+                                                    <ChevronLeft className="w-4 h-4 text-[#666]" />
+                                                </button>
+                                                <h4 className="flex-1 font-semibold text-[#1A1A1A] text-sm">⭐ Saved Questions</h4>
+                                                {favorites.length > 0 && (
                                                     <button
-                                                        onClick={(e) => { e.stopPropagation(); removeFavorite(fav); }}
-                                                        className="p-1 rounded hover:bg-red-50 transition-colors cursor-pointer opacity-0 group-hover:opacity-100 flex-shrink-0"
-                                                        title="Remove from favorites"
+                                                        onClick={() => { setFavEditMode(!favEditMode); setFavSelected(new Set()); }}
+                                                        className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-all cursor-pointer
+                                                    ${favEditMode
+                                                                ? "bg-[#F0F0EC] text-[#1A1A1A]"
+                                                                : "text-[#9CA3AF] hover:text-[#666] hover:bg-[#F8F8F6]"
+                                                            }`}
                                                     >
-                                                        <Trash2 className="w-3 h-3 text-[#ccc] hover:text-red-400" />
+                                                        {favEditMode ? "Done" : "Edit"}
                                                     </button>
+                                                )}
+                                            </div>
+                                            {favorites.length === 0 ? (
+                                                <div className="flex flex-col items-center justify-center py-12 px-4">
+                                                    <Star className="w-8 h-8 text-amber-200 mb-3" />
+                                                    <p className="text-[#aaa] text-xs text-center mb-1">No favorites yet</p>
+                                                    <p className="text-[#ccc] text-[11px] text-center leading-relaxed">
+                                                        Browse questions by topic and click the ⭐ star to save your go-to queries
+                                                    </p>
                                                 </div>
-                                            ))}
+                                            ) : (
+                                                <>
+                                                    {/* Select All toggle in edit mode */}
+                                                    {favEditMode && (
+                                                        <div className="flex items-center gap-2 px-4 mb-2">
+                                                            <button
+                                                                onClick={toggleAll}
+                                                                className="flex items-center gap-1.5 text-[11px] text-[#888] hover:text-[#555] transition-colors cursor-pointer"
+                                                            >
+                                                                <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-all
+                                                            ${allSelected ? "bg-amber-400 border-amber-400" : "border-[#ccc]"}`}
+                                                                >
+                                                                    {allSelected && <span className="text-white text-[8px] font-bold">✓</span>}
+                                                                </div>
+                                                                Select all
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    <div className="flex-1 overflow-y-auto space-y-1.5 px-2" style={{ scrollbarWidth: "thin" }}>
+                                                        {favorites.map((fav) => (
+                                                            <div
+                                                                key={fav}
+                                                                className={`group flex items-start gap-2 p-3 rounded-xl border transition-all
+                                                            ${favEditMode
+                                                                        ? favSelected.has(fav)
+                                                                            ? "border-red-200 bg-red-50/50"
+                                                                            : "border-[#EAEAE8] bg-white hover:bg-[#FAFAF8]"
+                                                                        : "border-amber-200/50 bg-amber-50/40 hover:bg-amber-50 hover:border-amber-300/60 cursor-pointer"
+                                                                    }`}
+                                                                onClick={() => favEditMode ? toggleSelect(fav) : (() => { handleSuggestion(fav); setShowFavorites(false); })()}
+                                                            >
+                                                                {favEditMode ? (
+                                                                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center mt-0.5 flex-shrink-0 transition-all cursor-pointer
+                                                                ${favSelected.has(fav) ? "bg-red-400 border-red-400" : "border-[#ccc]"}`}
+                                                                    >
+                                                                        {favSelected.has(fav) && <span className="text-white text-[9px] font-bold">✓</span>}
+                                                                    </div>
+                                                                ) : (
+                                                                    <Star className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" fill="currentColor" />
+                                                                )}
+                                                                <p className={`flex-1 text-[12px] leading-snug ${favEditMode ? "text-[#555]" : "text-amber-900"}`}>{fav}</p>
+                                                                {!favEditMode && (
+                                                                    <button
+                                                                        onClick={(e) => { e.stopPropagation(); removeFavorite(fav); }}
+                                                                        className="p-1 rounded hover:bg-red-50 transition-colors cursor-pointer opacity-0 group-hover:opacity-100 flex-shrink-0"
+                                                                        title="Remove from favorites"
+                                                                    >
+                                                                        <Trash2 className="w-3 h-3 text-[#ccc] hover:text-red-400" />
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                    {/* Delete action bar */}
+                                                    {favEditMode && favSelected.size > 0 && (
+                                                        <div className="px-3 pt-2 pb-1 border-t border-[#EAEAE8] mt-2">
+                                                            <button
+                                                                onClick={deleteSelected}
+                                                                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl
+                                                            bg-red-50 hover:bg-red-100 border border-red-200
+                                                            text-red-600 text-[12px] font-medium
+                                                            transition-all cursor-pointer"
+                                                            >
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                                Delete {favSelected.size} question{favSelected.size !== 1 ? "s" : ""}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
                                         </div>
-                                    )}
-                                </div>
+                                    );
+                                })()
                             ) : messages.length === 0 ? (
                                 <div className="flex flex-col h-full overflow-y-auto px-1 py-2"
                                     style={{ scrollbarWidth: "thin", scrollbarColor: "#EAEAE8 transparent" }}>
