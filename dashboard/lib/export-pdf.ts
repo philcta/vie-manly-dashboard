@@ -3,6 +3,8 @@
  * Uses browser-native print-to-PDF via a styled hidden iframe
  */
 
+import { supabase } from "@/lib/supabase";
+
 interface ChatMessage {
     role: "user" | "assistant" | string;
     content: string;
@@ -15,14 +17,34 @@ interface ConversationExport {
     createdAt: string; // ISO date
 }
 
-// KPI goals from the Business Improvement Plan
-const KPI_TARGETS = [
-    { metric: "Labour vs Sales %", current: "24.4% (trending 28%)", target: "≤ 24%", timeline: "4 weeks" },
-    { metric: "Average Sale", current: "$24.10 (trending $22)", target: "≥ $24.00", timeline: "8 weeks" },
-    { metric: "Real Profit Margin", current: "23.8%", target: "≥ 25%", timeline: "3 months" },
-    { metric: "Member Revenue %", current: "TBD", target: "+5% vs current", timeline: "3 months" },
-    { metric: "Dead/Overstock Items", current: "TBD", target: "−30% vs current", timeline: "6 weeks" },
+interface KpiTarget {
+    metric: string;
+    current_value: string;
+    target_value: string;
+    timeline: string;
+}
+
+// Fallback KPI targets if DB fetch fails
+const FALLBACK_KPI_TARGETS: KpiTarget[] = [
+    { metric: "Labour vs Sales %", current_value: "24.4% (trending 28%)", target_value: "≤ 24%", timeline: "4 weeks" },
+    { metric: "Average Sale", current_value: "$24.10 (trending $22)", target_value: "≥ $24.00", timeline: "8 weeks" },
+    { metric: "Real Profit Margin", current_value: "23.8%", target_value: "≥ 25%", timeline: "3 months" },
+    { metric: "Member Revenue %", current_value: "TBD", target_value: "+5% vs current", timeline: "3 months" },
+    { metric: "Dead/Overstock Items", current_value: "TBD", target_value: "−30% vs current", timeline: "6 weeks" },
 ];
+
+async function fetchKpiTargets(): Promise<KpiTarget[]> {
+    try {
+        const { data } = await supabase
+            .from("kpi_targets")
+            .select("metric, current_value, target_value, timeline")
+            .eq("active", true)
+            .order("sort_order", { ascending: true });
+        return (data as KpiTarget[]) || FALLBACK_KPI_TARGETS;
+    } catch {
+        return FALLBACK_KPI_TARGETS;
+    }
+}
 
 function formatDate(d: string | Date): string {
     const date = new Date(d);
@@ -46,7 +68,7 @@ function stripMarkdown(text: string): string {
         .replace(/\n/g, "<br>");
 }
 
-function buildHtml(conv: ConversationExport): string {
+function buildHtml(conv: ConversationExport, kpiTargets: KpiTarget[]): string {
     const dateStr = formatDate(conv.createdAt);
 
     const qaPairs = [];
@@ -82,12 +104,12 @@ function buildHtml(conv: ConversationExport): string {
         )
         .join("");
 
-    const kpiRows = KPI_TARGETS.map(
+    const kpiRows = kpiTargets.map(
         (kpi) => `
         <tr>
             <td style="padding:7px 10px;border-bottom:1px solid #eee;font-weight:500;font-size:12px;">${kpi.metric}</td>
-            <td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:12px;color:#888;">${kpi.current}</td>
-            <td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:12px;color:#6B7355;font-weight:600;">${kpi.target}</td>
+            <td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:12px;color:#888;">${kpi.current_value}</td>
+            <td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:12px;color:#6B7355;font-weight:600;">${kpi.target_value}</td>
             <td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:11px;color:#999;">${kpi.timeline}</td>
         </tr>
     `
@@ -156,8 +178,10 @@ function buildHtml(conv: ConversationExport): string {
 </html>`;
 }
 
-export function exportConversationToPdf(conv: ConversationExport) {
-    const html = buildHtml(conv);
+export async function exportConversationToPdf(conv: ConversationExport) {
+    // Fetch latest KPI targets from Supabase
+    const kpiTargets = await fetchKpiTargets();
+    const html = buildHtml(conv, kpiTargets);
 
     // Open a new window and print
     const win = window.open("", "_blank");

@@ -34,6 +34,7 @@ async function buildBusinessContext(): Promise<string> {
         alertCounts,
         topMembers,
         signUpsByDow,
+        kpiTargets,
     ] = await Promise.all([
         // Original 6 queries
         supabase
@@ -109,6 +110,13 @@ async function buildBusinessContext(): Promise<string> {
 
         // NEW: Member sign-ups by DOW (will fall back gracefully)
         supabase.rpc("get_signups_by_dow", { days_back: 90 }),
+
+        // KPI Targets from the business improvement plan
+        supabase
+            .from("kpi_targets")
+            .select("*")
+            .eq("active", true)
+            .order("sort_order", { ascending: true }),
     ]);
 
     // ── Format store overview ────────────────────────────────────────
@@ -294,13 +302,22 @@ ${invContext || "No inventory stats yet."}
 ### Stock Requiring Action (Dead / Overstock / Critical)
 ${deadItems || "No problematic stock items."}
 
+### KPI Targets (Business Improvement Plan)
+${(() => {
+            const kpiRows = kpiTargets.data || [];
+            if (kpiRows.length === 0) return "No KPI targets set.";
+            return kpiRows
+                .map((k: Record<string, unknown>) => `- **${k.metric}**: Current ${k.current_value} → Target ${k.target_value} (${k.timeline})`)
+                .join("\\n");
+        })()}
+
 ### Business Profile
 - Organic grocery + café in Manly, NSW
 - Two sides: Café (~70% margin, ~30% of sales) and Retail (~41% margin, ~70% of sales)
 - Open since August 20, 2025
 - Loyalty program: Points-based via Square
 - Financial Year: July 1 – June 30 (Australian)
-- KPI Targets: Labour ≤24%, Avg Sale ≥$15, Real Profit ≥25%, Member tx share ≥35%
+- IMPORTANT: Always reference the KPI Targets above when discussing performance. Compare actual values against the target values and indicate whether they are on track (✅) or need attention (⚠️).
 `.trim();
 }
 
