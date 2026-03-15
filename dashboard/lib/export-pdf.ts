@@ -58,14 +58,142 @@ function formatDate(d: string | Date): string {
     });
 }
 
-function stripMarkdown(text: string): string {
+/**
+ * Convert markdown table lines into a styled HTML table.
+ * Detects lines that start/end with | and have | separators.
+ */
+function convertMarkdownTable(lines: string[]): string {
+    // Filter out separator rows (|---|---|)
+    const dataRows = lines.filter(
+        (l) => !/^\|[\s:]*[-]+/.test(l.replace(/\|/g, "|").replace(/[^|:-]/g, ""))
+    );
+    // More reliable: separator row is one where every cell is only dashes/colons/spaces
+    const contentRows = lines.filter((l) => {
+        const cells = l.split("|").filter(Boolean).map((c) => c.trim());
+        return !cells.every((c) => /^[:]*[-]+[:]*$/.test(c));
+    });
+
+    if (contentRows.length === 0) return "";
+
+    const headerCells = contentRows[0]
+        .split("|")
+        .filter(Boolean)
+        .map((c) => c.trim());
+    const bodyRows = contentRows.slice(1);
+
+    const thStyle =
+        'padding:8px 10px;text-align:left;font-size:11px;color:#555;font-weight:600;border-bottom:2px solid #ddd;background:#f7f5f0;white-space:nowrap;';
+    const tdStyle =
+        'padding:7px 10px;border-bottom:1px solid #eee;font-size:12px;color:#333;';
+
+    let html =
+        '<table style="width:100%;border-collapse:collapse;margin:10px 0 14px 0;font-size:12px;">';
+    html += "<thead><tr>";
+    for (const cell of headerCells) {
+        html += `<th style="${thStyle}">${inlineMarkdown(cell)}</th>`;
+    }
+    html += "</tr></thead><tbody>";
+
+    for (const row of bodyRows) {
+        const cells = row
+            .split("|")
+            .filter(Boolean)
+            .map((c) => c.trim());
+        html += "<tr>";
+        for (const cell of cells) {
+            html += `<td style="${tdStyle}">${inlineMarkdown(cell)}</td>`;
+        }
+        html += "</tr>";
+    }
+
+    html += "</tbody></table>";
+    return html;
+}
+
+/** Apply inline markdown formatting (bold, italic, code) */
+function inlineMarkdown(text: string): string {
     return text
-        .replace(/#{1,6}\s/g, "")
         .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
         .replace(/\*(.*?)\*/g, "<em>$1</em>")
-        .replace(/`(.*?)`/g, '<code style="background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:12px;">$1</code>')
-        .replace(/^\s*[-•]\s/gm, "• ")
-        .replace(/\n/g, "<br>");
+        .replace(
+            /`(.*?)`/g,
+            '<code style="background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:11px;">$1</code>'
+        );
+}
+
+/**
+ * Convert full markdown text to styled HTML.
+ * Handles: tables, headings, bold, italic, code, bullets, numbered lists.
+ */
+function stripMarkdown(text: string): string {
+    const lines = text.split("\n");
+    const result: string[] = [];
+    let i = 0;
+
+    while (i < lines.length) {
+        const line = lines[i];
+        const trimmed = line.trim();
+
+        // Detect markdown table block (consecutive lines starting with |)
+        if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+            const tableLines: string[] = [];
+            while (
+                i < lines.length &&
+                lines[i].trim().startsWith("|") &&
+                lines[i].trim().endsWith("|")
+            ) {
+                tableLines.push(lines[i].trim());
+                i++;
+            }
+            result.push(convertMarkdownTable(tableLines));
+            continue;
+        }
+
+        // Headings
+        const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
+        if (headingMatch) {
+            const level = headingMatch[1].length;
+            const sizes: Record<number, string> = { 1: "16px", 2: "14px", 3: "13px", 4: "12px", 5: "12px", 6: "11px" };
+            result.push(
+                `<p style="font-size:${sizes[level] || "12px"};font-weight:600;color:#2a2a2a;margin:14px 0 6px 0;">${inlineMarkdown(headingMatch[2])}</p>`
+            );
+            i++;
+            continue;
+        }
+
+        // Numbered list item
+        if (/^\d+[\.\)]\s/.test(trimmed)) {
+            const content = trimmed.replace(/^\d+[\.\)]\s/, "");
+            result.push(
+                `<p style="margin:2px 0 2px 16px;font-size:12.5px;line-height:1.65;">${inlineMarkdown(content)}</p>`
+            );
+            i++;
+            continue;
+        }
+
+        // Bullet point
+        if (/^[-•*]\s/.test(trimmed)) {
+            const content = trimmed.replace(/^[-•*]\s/, "");
+            result.push(
+                `<p style="margin:2px 0 2px 16px;font-size:12.5px;line-height:1.65;">• ${inlineMarkdown(content)}</p>`
+            );
+            i++;
+            continue;
+        }
+
+        // Empty line → small spacer
+        if (trimmed === "") {
+            result.push('<div style="height:6px;"></div>');
+            i++;
+            continue;
+        }
+
+        // Regular paragraph
+        result.push(inlineMarkdown(trimmed) + "<br>");
+        i++;
+    }
+
+    return result.join("\n");
 }
 
 function buildHtml(conv: ConversationExport, kpiTargets: KpiTarget[]): string {
