@@ -44,6 +44,8 @@ interface MemberRow {
     [key: string]: unknown;
     customerId: string;
     name: string;
+    firstName: string;
+    lastName: string;
     phone: string | null;
     totalSpent: number;
     visits: number;
@@ -83,7 +85,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function exportMembersCSV(members: MemberRow[]) {
     const headers = [
-        "Name", "Phone", "Total Spent", "Visits",
+        "First Name", "Last Name", "Phone", "Total Spent", "Visits",
         "Avg Spend", "Avg Spend Cafe", "Avg Spend Retail",
         "30d Avg Spend", "30d Avg Cafe", "30d Avg Retail", "30d Visits",
         "Trend %", "Total Points", "Points Redeemed", "Points Available",
@@ -91,7 +93,8 @@ function exportMembersCSV(members: MemberRow[]) {
     ];
 
     const rows = members.map((m) => [
-        m.name,
+        m.firstName,
+        m.lastName,
         m.phone || "",
         m.totalSpent.toFixed(2),
         m.visits,

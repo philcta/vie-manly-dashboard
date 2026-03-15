@@ -213,6 +213,8 @@ export function buildPeriodMembers(
 
             return {
                 customerId: s.customer_id,
+                firstName: member?.first_name || "",
+                lastName: member?.last_name || "",
                 name: member
                     ? `${member.first_name || ""} ${member.last_name || ""}`.trim() || "Unknown"
                     : "Unknown",
@@ -445,6 +447,8 @@ export function buildAllMembers(
 
             return {
                 customerId: s.square_customer_id,
+                firstName: member?.first_name || "",
+                lastName: member?.last_name || "",
                 name: member
                     ? `${member.first_name || ""} ${member.last_name || ""}`.trim() || "Unknown"
                     : "Unknown",
