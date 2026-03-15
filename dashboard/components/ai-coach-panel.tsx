@@ -139,8 +139,12 @@ function renderMarkdown(text: string) {
     lines.forEach((line, idx) => {
         const trimmed = line.trim();
 
-        // Table rows — collect consecutive | lines
-        if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+        // Table rows — detect lines that look like pipe-delimited tables
+        // Match: starts with |, OR contains at least 2 pipes (some LLMs skip trailing pipe)
+        const isTableRow = trimmed.startsWith("|") || (trimmed.includes("|") && (trimmed.match(/\|/g) || []).length >= 2 && /^[\s|:\-]/.test(trimmed));
+        const isSepLine = /^\|?[\s\-:|]+\|[\s\-:|]+\|?\s*$/.test(trimmed);
+
+        if (isTableRow || isSepLine) {
             flushList();
             tableLines.push(trimmed);
             return;
