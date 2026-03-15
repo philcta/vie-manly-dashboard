@@ -34,6 +34,7 @@ function renderMarkdown(text: string) {
     const elements: React.ReactNode[] = [];
     let inList = false;
     let listItems: React.ReactNode[] = [];
+    let tableLines: string[] = [];
 
     const flushList = () => {
         if (listItems.length > 0) {
@@ -45,6 +46,66 @@ function renderMarkdown(text: string) {
             listItems = [];
             inList = false;
         }
+    };
+
+    const flushTable = () => {
+        if (tableLines.length < 2) {
+            // Not enough lines for a table — just render as paragraphs
+            tableLines.forEach((tl, ti) => {
+                elements.push(
+                    <p key={`tbl-fallback-${elements.length}-${ti}`} className="text-[13px] leading-relaxed my-1">
+                        {formatInline(tl)}
+                    </p>
+                );
+            });
+            tableLines = [];
+            return;
+        }
+
+        const parseCells = (row: string) =>
+            row.split("|").map((c) => c.trim()).filter((c) => c.length > 0);
+
+        // Detect separator row (|---|---|)
+        const isSeparator = (row: string) => /^\|?[\s\-:|]+\|[\s\-:|]+\|?$/.test(row.trim());
+
+        const headerRow = parseCells(tableLines[0]);
+        const startIdx = isSeparator(tableLines[1]) ? 2 : 1;
+        const dataRows = tableLines.slice(startIdx)
+            .filter((r) => !isSeparator(r))
+            .map(parseCells);
+
+        elements.push(
+            <div key={`table-${elements.length}`} className="my-2 overflow-x-auto rounded-lg border border-[#E5E5E0]"
+                style={{ scrollbarWidth: "thin" }}>
+                <table className="w-full text-[11px] border-collapse">
+                    <thead>
+                        <tr className="bg-[#F0F1EC]">
+                            {headerRow.map((cell, ci) => (
+                                <th key={ci}
+                                    className="px-2.5 py-2 text-left font-semibold text-[#4A5139] whitespace-nowrap border-b border-[#DDD]"
+                                >
+                                    {formatInline(cell)}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {dataRows.map((row, ri) => (
+                            <tr key={ri} className={ri % 2 === 0 ? "bg-white" : "bg-[#FAFAF8]"}>
+                                {row.map((cell, ci) => (
+                                    <td key={ci}
+                                        className="px-2.5 py-1.5 text-[#333] border-b border-[#F0F0EC] whitespace-nowrap"
+                                    >
+                                        {formatInline(cell)}
+                                    </td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        );
+        tableLines = [];
     };
 
     const formatInline = (line: string): React.ReactNode => {
@@ -77,6 +138,17 @@ function renderMarkdown(text: string) {
 
     lines.forEach((line, idx) => {
         const trimmed = line.trim();
+
+        // Table rows — collect consecutive | lines
+        if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+            flushList();
+            tableLines.push(trimmed);
+            return;
+        }
+        // If we were collecting table lines but hit a non-table line, flush
+        if (tableLines.length > 0) {
+            flushTable();
+        }
 
         // Headers
         if (trimmed.startsWith("### ")) {
@@ -156,6 +228,7 @@ function renderMarkdown(text: string) {
     });
 
     flushList();
+    flushTable();
     return elements;
 }
 
