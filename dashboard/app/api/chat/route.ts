@@ -212,7 +212,10 @@ async function buildBusinessContext(): Promise<string> {
         `Dead: ${invSummary.dead_count || 0}, Overstock: ${invSummary.overstock_count || 0}, ` +
         `Avg sell-through: ${invSummary.avg_sell_through || 0}%, ` +
         `30d revenue from tracked items: $${invSummary.total_revenue_30d || 0}, ` +
-        `30d units sold: ${invSummary.total_units_sold_30d || 0}`;
+        `30d units sold: ${invSummary.total_units_sold_30d || 0}, ` +
+        `Waste (30d): ${invSummary.total_waste_units_30d || 0} units ($${invSummary.total_waste_cost_30d || 0}), ` +
+        `Trending UP: ${invSummary.trending_up_count || 0}, Trending DOWN: ${invSummary.trending_down_count || 0}, ` +
+        `Stockout risk (14d): ${invSummary.stockout_risk_14d_count || 0} items`;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const topSellers = (invAi.top_sellers || []).map((s: any) =>
@@ -228,7 +231,9 @@ async function buildBusinessContext(): Promise<string> {
         `⚠️ ${r.product_name} (${r.category || "?"}): ${r.reorder_alert}, ` +
         `Qty ${r.qty}, ${r.days_of_stock?.toFixed(0)} days left, ` +
         `Velocity ${r.sales_velocity}/mo, Sell-through ${r.sell_through_pct}%, ` +
-        `Vendor: ${r.vendor || "unknown"}, Suggested order: ${r.suggested_order_qty} units`
+        `Vendor: ${r.vendor || "unknown"}, ` +
+        `Stockout by: ${r.stockout_risk_date || "?"}, ` +
+        `Order recommended: ${r.recommended_order_qty || 0} units`
     ).join("\n");
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -257,7 +262,34 @@ async function buildBusinessContext(): Promise<string> {
     const vendorSummary = (invAi.vendors || []).map((v: any) =>
         `${v.vendor}: ${v.total_items} items, $${v.revenue_30d} rev/30d, ` +
         `${v.out_of_stock} out of stock, ${v.critical_items} critical, ` +
-        `Avg sell-through: ${v.avg_sell_through}%`
+        `Avg sell-through: ${v.avg_sell_through}%, Waste: ${v.waste_units_30d || 0} units`
+    ).join("\n");
+
+    // Phase 2: Waste & Damage items
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wasteItems = (invAi.waste_damage || []).map((w: any) =>
+        `${w.product_name} (${w.category || "?"}): ${w.waste_units_30d} units wasted (30d), ` +
+        `Cost: $${w.waste_cost_30d?.toFixed(0) || "0"}, 90d total: ${w.waste_units_90d} units, ` +
+        `Current stock: ${w.qty}, Velocity: ${w.sales_velocity}/mo, ` +
+        `Vendor: ${w.vendor || "?"}`
+    ).join("\n");
+
+    // Phase 2: Trending items
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const trendingItems = (invAi.trending || []).map((t: any) =>
+        `${t.weekly_trend === "UP" ? "\u2191" : "\u2193"} ${t.product_name} (${t.category || "?"}): ` +
+        `${t.velocity_change_pct > 0 ? "+" : ""}${t.velocity_change_pct?.toFixed(0)}% vs last week, ` +
+        `${t.units_sold_7d} sold this week, Velocity ${t.sales_velocity}/mo, ` +
+        `Stock: ${t.qty} (${t.days_of_stock?.toFixed(0)} days)`
+    ).join("\n");
+
+    // Phase 2: Stockout risk predictions
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stockoutRisks = (invAi.stockout_risks || []).map((s: any) =>
+        `\u26a0\ufe0f ${s.product_name} (${s.category || "?"}): Runs out ~${s.stockout_risk_date}, ` +
+        `${s.days_of_stock?.toFixed(0)} days left, Current qty: ${s.qty}, ` +
+        `Daily sales: ${s.avg_daily_sales}, Order ${s.recommended_order_qty} units, ` +
+        `Vendor: ${s.vendor || "?"}`
     ).join("\n");
 
     // Category-level weekly trends
@@ -344,6 +376,15 @@ ${overstockItems || "No overstocked items."}
 ### Vendor Performance (Top 10 by Revenue)
 ${vendorSummary || "No vendor data."}
 
+### Waste & Spoilage (Last 30 Days)
+${wasteItems || "No waste/damage data recorded."}
+
+### Trending Items (This Week vs Last Week)
+${trendingItems || "No significant velocity changes detected."}
+
+### Stockout Risk (Next 14 Days)
+${stockoutRisks || "No items at risk of running out soon."}
+
 ### Inventory by Category
 ${invCategoryContext || "No category inventory data."}
 
@@ -389,6 +430,10 @@ Inventory & Stock Expertise:
 - When asked about dead stock, calculate total capital tied up and suggest clearance strategies (discount, bundle, donate)
 - When comparing items, always mention margin % — a high-revenue item with low margin may be less profitable than a moderate seller with high margin
 - Identify out-of-stock items that were selling well — these represent lost revenue opportunities
+- **Waste tracking**: You have data on items wasted/spoiled in the last 30 and 90 days. When asked about waste, calculate total cost impact and suggest ways to reduce it (better forecasting, smaller orders, shorter shelf-life awareness)
+- **Velocity trends**: You know which items are trending UP or DOWN in sales velocity this week vs last week. Use this to proactively flag emerging opportunities or problems
+- **Stockout predictions**: Use the stockout_risk_date to warn about items that will run out soon. Always include the recommended_order_qty and which vendor to order from
+- When asked "what should I reorder?", combine the Reorder Urgents + Stockout Risk sections, grouped by vendor
 
 Formatting:
 - Use markdown for structure (headings, bold, bullet points)
