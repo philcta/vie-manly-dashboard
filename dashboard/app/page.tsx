@@ -252,11 +252,13 @@ export default function OverviewPage() {
   const compCatAgg = aggregateCategoryStats(compCategoryData);
   const noCompCat = compCatAgg.cafeNetSales === 0 && compCatAgg.retailNetSales === 0;
 
-  // Cafe/Retail avg sale
-  const cafeAvgSale = catAgg.cafeTransactions > 0 ? catAgg.cafeNetSales / catAgg.cafeTransactions : 0;
-  const retailAvgSale = catAgg.retailTransactions > 0 ? catAgg.retailNetSales / catAgg.retailTransactions : 0;
-  const compCafeAvgSale = compCatAgg.cafeTransactions > 0 ? compCatAgg.cafeNetSales / compCatAgg.cafeTransactions : 0;
-  const compRetailAvgSale = compCatAgg.retailTransactions > 0 ? compCatAgg.retailNetSales / compCatAgg.retailTransactions : 0;
+  // Cafe/Retail avg sale — contribution per total transaction (so cafe + retail = total avg sale)
+  const totalTx = cs?.transactions ?? 0;
+  const cafeAvgSale = totalTx > 0 ? catAgg.cafeNetSales / totalTx : 0;
+  const retailAvgSale = totalTx > 0 ? catAgg.retailNetSales / totalTx : 0;
+  const compTotalTx = ps?.transactions ?? 0;
+  const compCafeAvgSale = compTotalTx > 0 ? compCatAgg.cafeNetSales / compTotalTx : 0;
+  const compRetailAvgSale = compTotalTx > 0 ? compCatAgg.retailNetSales / compTotalTx : 0;
 
   // Cafe/Retail labour ratio
   const cafeLabourRatio = catAgg.cafeNetSales > 0 ? (labourBySide.cafe / catAgg.cafeNetSales) * 100 : 0;
