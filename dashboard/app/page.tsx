@@ -372,6 +372,7 @@ export default function OverviewPage() {
                 change={noCompData ? null : calcChange(cs?.avgSale ?? 0, ps?.avgSale ?? 0)}
                 noCompData={noCompData}
                 subtitle={`Cafe: ${formatCurrency(cafeAvgSale)} · Retail: ${formatCurrency(retailAvgSale)}`}
+                goal="≥ $24.00 within 8 weeks"
                 delay={5}
               />
               <KpiCard
@@ -392,6 +393,7 @@ export default function OverviewPage() {
                 noCompData={noLabourData}
                 invertColor
                 subtitle={periodIncludesPreOpening ? "No shift data before Aug 20" : `Cafe: ${formatPercent(cafeLabourRatio)} · Retail: ${formatPercent(retailLabourRatio)}`}
+                goal="≤ 24% within 4 weeks"
                 delay={7}
               />
             </div>
@@ -428,6 +430,7 @@ export default function OverviewPage() {
                 noCompData={noLabourData}
                 subtitle={periodIncludesPreOpening ? "No shift data before Aug 20" : `Cafe: ${formatPercent(cafeMargin - cafeLabourRatio)} · Retail: ${formatPercent(retailMargin - retailLabourRatio)}`}
                 tooltip={periodIncludesPreOpening ? "Labour data not available for periods before Aug 20, 2025" : `Margin ${formatPercent(effectiveMargin)} − Labour ${formatPercent(labourRatio)}. Weighted by sales mix: Cafe margin (${formatPercent(cafeMargin)}) − Cafe labour (${formatPercent(cafeLabourRatio)}), Retail margin (${formatPercent(retailMargin)}) − Retail labour (${formatPercent(retailLabourRatio)}).`}
+                goal="≥ 25% within 3 months"
                 accent
                 delay={9}
               />

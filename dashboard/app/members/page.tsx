@@ -578,6 +578,7 @@ export default function MembersPage() {
                                 change={noCompData ? null : calcChange(kpis.memberRevenueShare, compKpis!.memberRevenueShare)}
                                 noCompData={noCompData}
                                 subtitle={`Tx ratio: ${formatPercent(kpis.memberTxRatio)}`}
+                                goal="+5% vs current within 3 months"
                                 delay={3}
                             />
                             <KpiCard

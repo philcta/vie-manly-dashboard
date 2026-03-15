@@ -538,7 +538,7 @@ export default function InventoryPage() {
                         <KpiCard label="Stock Value (GST inc.)" value={stockValue} formatter={(n) => formatCurrency(n, 0)} subtitle={`Ex-GST: ${formatCurrency(stockValueExGst, 0)} · ${snapshotDate}`} delay={0} />
                         <KpiCard label="Retail Value" value={retailValue} formatter={(n) => formatCurrency(n, 0)} subtitle={snapshotDate ? `as of ${snapshotDate}` : undefined} delay={1} />
                         <KpiCard label="Avg Profit Margin" value={avgMargin} formatter={(n) => formatPercent(n)} subtitle={`Cafe: ${formatPercent(cafeMargin)} · Retail: ${formatPercent(retailMargin)}`} delay={2} />
-                        <KpiCard label="Needs Action" value={needsActionCount} formatter={(n) => formatNumber(n)} subtitle={`${alerts.critical} critical · ${alerts.low} low`} delay={3} />
+                        <KpiCard label="Needs Action" value={needsActionCount} formatter={(n) => formatNumber(n)} subtitle={`${alerts.critical} critical · ${alerts.low} low`} goal="Reduce dead/overstock by 30% within 6 weeks" delay={3} />
                     </div>
 
                     {/* ── Restock Alerts Panel ──────────────────────────── */}

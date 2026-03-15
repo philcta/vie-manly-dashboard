@@ -2,7 +2,7 @@
 
 import { motion, useReducedMotion } from "framer-motion";
 import AnimatedNumber from "@/components/animated-number";
-import { TrendingUp, TrendingDown, Minus, Info } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Info, Target } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 interface KpiCardProps {
@@ -23,6 +23,8 @@ interface KpiCardProps {
     invertColor?: boolean;
     /** Optional info tooltip shown next to the label */
     tooltip?: string;
+    /** Optional KPI goal/target — shows a target icon with the goal in a tooltip */
+    goal?: string;
     /** When true, gives the card a premium accent treatment (gradient border + warm tint) */
     accent?: boolean;
 }
@@ -45,6 +47,7 @@ export default function KpiCard({
     delay = 0,
     invertColor = false,
     tooltip,
+    goal,
     accent = false,
 }: KpiCardProps) {
     const shouldReduceMotion = useReducedMotion();
@@ -94,6 +97,16 @@ export default function KpiCard({
                         </TooltipTrigger>
                         <TooltipContent side="top" sideOffset={6} className="max-w-[240px] text-xs leading-relaxed">
                             {tooltip}
+                        </TooltipContent>
+                    </Tooltip>
+                )}
+                {goal && (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Target className="w-3.5 h-3.5 cursor-help" style={{ color: '#d97706' }} />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" sideOffset={6} className="max-w-[260px] text-xs leading-relaxed">
+                            <span style={{ fontWeight: 600 }}>🎯 Goal:</span> {goal}
                         </TooltipContent>
                     </Tooltip>
                 )}
