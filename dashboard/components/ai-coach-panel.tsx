@@ -18,6 +18,8 @@ import {
     Download,
     Clock,
     ChevronLeft,
+    Star,
+    X as XIcon,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { exportConversationToPdf } from "@/lib/export-pdf";
@@ -392,6 +394,33 @@ export default function AiCoachPanel() {
     const [historyLoading, setHistoryLoading] = useState(false);
     const lastSavedCountRef = useRef(0);
     const conversationCreatedRef = useRef<string | null>(null);
+
+    // Favorites state (persisted to localStorage)
+    const FAVORITES_KEY = "vie_coach_favorites";
+    const [favorites, setFavorites] = useState<string[]>(() => {
+        if (typeof window === "undefined") return [];
+        try {
+            return JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]");
+        } catch { return []; }
+    });
+
+    const toggleFavorite = useCallback((query: string) => {
+        setFavorites(prev => {
+            const next = prev.includes(query)
+                ? prev.filter(f => f !== query)
+                : [...prev, query];
+            try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(next)); } catch { /* noop */ }
+            return next;
+        });
+    }, []);
+
+    const removeFavorite = useCallback((query: string) => {
+        setFavorites(prev => {
+            const next = prev.filter(f => f !== query);
+            try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(next)); } catch { /* noop */ }
+            return next;
+        });
+    }, []);
 
     const { messages, sendMessage, status, setMessages } =
         useChat({
@@ -843,6 +872,44 @@ export default function AiCoachPanel() {
                                         </p>
                                     </div>
 
+                                    {/* ⭐ Favorites Section */}
+                                    {!activeCategory && favorites.length > 0 && (
+                                        <div className="px-2 mb-3">
+                                            <p className="text-[10px] font-semibold text-[#B8860B] uppercase tracking-wider mb-1.5 px-1">
+                                                ⭐ Favorites
+                                            </p>
+                                            <div className="grid gap-1.5">
+                                                {favorites.map((fav) => (
+                                                    <div
+                                                        key={fav}
+                                                        className="flex items-start gap-1 group/fav"
+                                                    >
+                                                        <button
+                                                            onClick={() => handleSuggestion(fav)}
+                                                            className="flex-1 text-left px-3 py-2 rounded-xl text-[12px]
+                                                                bg-amber-50/80 hover:bg-amber-50
+                                                                text-amber-800
+                                                                border border-amber-200/60 hover:border-amber-300
+                                                                transition-all duration-200 cursor-pointer
+                                                                leading-snug"
+                                                        >
+                                                            {fav}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => removeFavorite(fav)}
+                                                            className="mt-1.5 p-1 rounded-md text-amber-300 hover:text-red-400
+                                                                opacity-0 group-hover/fav:opacity-100
+                                                                transition-all cursor-pointer flex-shrink-0"
+                                                            title="Remove from favorites"
+                                                        >
+                                                            <XIcon className="w-3 h-3" />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* Quick Suggestions */}
                                     {!activeCategory && (
                                         <div className="px-2 mb-3">
@@ -927,22 +994,35 @@ export default function AiCoachPanel() {
                                             key={msg.id}
                                             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                                         >
-                                            <div
-                                                className={`max-w-[85%] rounded-2xl px-4 py-3 ${msg.role === "user"
-                                                    ? "bg-gradient-to-br from-[#6B7355] to-[#4A5139] text-white rounded-br-md"
-                                                    : "bg-[#F8F8F6] text-[#2C2C2C] border border-[#EAEAE8] rounded-bl-md"
-                                                    }`}
-                                            >
-                                                {msg.role === "user" ? (
-                                                    <p className="text-[13px] leading-relaxed whitespace-pre-wrap">
-                                                        {getMessageText(msg)}
-                                                    </p>
-                                                ) : (
+                                            {/* User message with bookmark button */}
+                                            {msg.role === "user" ? (
+                                                <div className="flex items-start gap-1 max-w-[85%] group/msg">
+                                                    <button
+                                                        onClick={() => toggleFavorite(getMessageText(msg))}
+                                                        className={`mt-2 p-1 rounded-md transition-all cursor-pointer flex-shrink-0
+                                                            ${favorites.includes(getMessageText(msg))
+                                                                ? "text-amber-400 hover:text-amber-500 opacity-100"
+                                                                : "text-[#C0C0C0] hover:text-amber-400 opacity-0 group-hover/msg:opacity-100"
+                                                            }`}
+                                                        title={favorites.includes(getMessageText(msg)) ? "Remove from favorites" : "Save to favorites"}
+                                                    >
+                                                        <Star className="w-3.5 h-3.5" fill={favorites.includes(getMessageText(msg)) ? "currentColor" : "none"} />
+                                                    </button>
+                                                    <div className="rounded-2xl px-4 py-3 bg-gradient-to-br from-[#6B7355] to-[#4A5139] text-white rounded-br-md">
+                                                        <p className="text-[13px] leading-relaxed whitespace-pre-wrap">
+                                                            {getMessageText(msg)}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div
+                                                    className="max-w-[85%] rounded-2xl px-4 py-3 bg-[#F8F8F6] text-[#2C2C2C] border border-[#EAEAE8] rounded-bl-md"
+                                                >
                                                     <div className="prose-coach">
                                                         {renderMarkdown(getMessageText(msg))}
                                                     </div>
-                                                )}
-                                            </div>
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                     {isLoading && (
