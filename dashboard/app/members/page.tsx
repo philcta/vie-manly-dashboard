@@ -724,6 +724,44 @@ export default function MembersPage() {
                             defaultSortDir="desc"
                             searchKeys={["name", "phone"]}
                             searchPlaceholder="Search by name or phone…"
+                            mobileCardRender={(row) => (
+                                <div className="px-4 py-3 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <span className="font-semibold text-sm text-foreground truncate mr-2">{row.name}</span>
+                                        <StatusBadge status={row.status} />
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2 text-xs">
+                                        <div>
+                                            <span className="text-muted-foreground block">Spent</span>
+                                            <span className="font-medium tabular-nums">{formatCurrency(row.totalSpent)}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-muted-foreground block">Visits</span>
+                                            <span className="font-medium tabular-nums">{formatNumber(row.visits)}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-muted-foreground block">Avg</span>
+                                            <span className="font-medium tabular-nums">{formatCurrency(row.avgSpend)}</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                        <span>
+                                            {row.daysSinceLastVisit >= 999 ? "Never visited" : `${row.daysSinceLastVisit}d ago`}
+                                            {row.points > 0 && ` · ${formatNumber(row.points)} pts`}
+                                        </span>
+                                        {row.spendDropPct !== 0 && row.last30Visits > 0 && (
+                                            <span className={
+                                                row.spendDropPct >= 50 ? "text-red-600 font-semibold" :
+                                                    row.spendDropPct >= 25 ? "text-amber-600 font-semibold" :
+                                                        row.spendDropPct < 0 ? "text-emerald-600 font-semibold" :
+                                                            ""
+                                            }>
+                                                {row.spendDropPct < 0 ? `+${Math.abs(row.spendDropPct).toFixed(0)}%` : `${row.spendDropPct.toFixed(0)}% ↓`}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                             headerActions={
                                 <Tooltip>
                                     <TooltipTrigger asChild>

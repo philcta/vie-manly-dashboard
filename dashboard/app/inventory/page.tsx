@@ -635,6 +635,45 @@ export default function InventoryPage() {
                             defaultSortDir="asc"
                             searchKeys={["product", "category", "sku", "defaultVendor"]}
                             searchPlaceholder="Search product, category, SKU or vendor..."
+                            mobileCardRender={(row: InventoryItem) => (
+                                <div className="px-4 py-3 space-y-1.5">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <span className="font-medium text-sm text-foreground block truncate">{row.product}</span>
+                                            <span className="text-[11px] text-muted-foreground">{row.category}</span>
+                                        </div>
+                                        {row.reorderAlert && row.reorderAlert !== "OK" && (
+                                            <AlertBadge level={row.reorderAlert} />
+                                        )}
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-2 text-xs">
+                                        <div>
+                                            <span className="text-muted-foreground block">Qty</span>
+                                            <span className="font-medium tabular-nums">{row.qty}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-muted-foreground block">Cost</span>
+                                            <span className="font-medium tabular-nums">${row.cost.toFixed(2)}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-muted-foreground block">Price</span>
+                                            <span className="font-medium tabular-nums">${row.price.toFixed(2)}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-muted-foreground block">Margin</span>
+                                            <span className={`font-medium tabular-nums ${profitColor(row.actualProfit)}`}>{row.actualProfit.toFixed(1)}%</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                                        <span>
+                                            Sold: {row.sold30d} (30d) · {row.sold7d} (7d)
+                                        </span>
+                                        <span>
+                                            {row.daysOfStock >= 9999 ? "∞ days" : `${Math.round(row.daysOfStock)}d left`}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
                             headerActions={
                                 <Tooltip>
                                     <TooltipTrigger asChild>

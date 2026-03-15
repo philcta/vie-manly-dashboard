@@ -33,6 +33,7 @@ import {
 import { formatCurrency, formatPercent, formatNumber, calcChange } from "@/lib/format";
 import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 // Store opened Aug 20, 2025 — no labour/shift data exists before this date
 const STORE_OPENING_DATE = "2025-08-20";
@@ -55,6 +56,7 @@ export default function OverviewPage() {
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [loading, setLoading] = useState(true);
+  const [showMoreKpis, setShowMoreKpis] = useState(false);
 
   // Data states
   const [currentStats, setCurrentStats] = useState<ReturnType<typeof aggregateStats> | null>(null);
@@ -394,8 +396,20 @@ export default function OverviewPage() {
               />
             </div>
 
-            {/* Row 3: 3 cards */}
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
+            {/* Row 3: 3 cards — collapsible on mobile */}
+            <div className="md:hidden mt-2">
+              <button
+                onClick={() => setShowMoreKpis(!showMoreKpis)}
+                className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors rounded-lg border border-border bg-card cursor-pointer"
+              >
+                {showMoreKpis ? (
+                  <><ChevronUp className="w-3.5 h-3.5" /> Hide profitability</>
+                ) : (
+                  <><ChevronDown className="w-3.5 h-3.5" /> Show profitability (3 more)</>
+                )}
+              </button>
+            </div>
+            <div className={`grid grid-cols-2 md:grid-cols-3 gap-2 mt-2 ${!showMoreKpis ? 'hidden md:grid' : ''}`}>
               <KpiCard
                 label="Avg Profit Margin"
                 value={effectiveMargin}

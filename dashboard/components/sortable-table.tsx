@@ -35,6 +35,8 @@ interface SortableTableProps<T> {
     searchPlaceholder?: string;
     /** Optional: extra action buttons rendered in the header row */
     headerActions?: React.ReactNode;
+    /** Render a mobile-friendly card for each row. If provided, cards replace the table on small screens. */
+    mobileCardRender?: (row: T, index: number) => React.ReactNode;
 }
 
 // ── Debounce hook ───────────────────────────────────────────────
@@ -96,6 +98,7 @@ export function SortableTable<T extends Record<string, unknown>>({
     searchKeys,
     searchPlaceholder = "Search…",
     headerActions,
+    mobileCardRender,
 }: SortableTableProps<T>) {
     const [sortKey, setSortKey] = useState(defaultSortKey || columns[0]?.key || "");
     const [sortDir, setSortDir] = useState<"asc" | "desc">(defaultSortDir);
@@ -103,6 +106,17 @@ export function SortableTable<T extends Record<string, unknown>>({
     const [searchOpen, setSearchOpen] = useState(false);
     const searchInputRef = useRef<HTMLInputElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+    // Track mobile viewport for card rendering
+    const [isMobile, setIsMobile] = useState(false);
+    useEffect(() => {
+        const mql = window.matchMedia("(max-width: 767px)");
+        const update = () => setIsMobile(mql.matches);
+        update();
+        mql.addEventListener("change", update);
+        return () => mql.removeEventListener("change", update);
+    }, []);
+    const useMobileCards = isMobile && !!mobileCardRender;
 
     // Debounce search to 150ms — instant feel, stops re-renders mid-typing
     const debouncedQuery = useDebouncedValue(searchQuery, 150);
@@ -296,92 +310,110 @@ export function SortableTable<T extends Record<string, unknown>>({
                 </div>
             </div>
 
-            {/* Table */}
-            <div ref={scrollContainerRef} className="overflow-x-auto max-h-[480px] overflow-y-auto">
-                <table className="w-full">
-                    <thead className="sticky top-0 z-10">
-                        <tr className="bg-[#FAFAF8]">
-                            {visibleColumns.map((col) => {
-                                const isGroupParent = col.groupParent && col.group;
-                                const isExpanded = col.group ? expandedGroups.has(col.group) : false;
-                                return (
-                                    <th
-                                        key={col.key}
-                                        className={`px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-text-body select-none transition-colors whitespace-nowrap ${alignClass(col.align)} ${col.sortValue || col.key ? "cursor-pointer hover:text-foreground" : ""}`}
-                                    >
-                                        <span className="inline-flex items-center gap-1">
-                                            {isGroupParent && (
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); toggleGroup(col.group!); }}
-                                                    className="cursor-pointer hover:text-olive transition-colors"
-                                                >
-                                                    {isExpanded ? (
-                                                        <ChevronLeft className="w-3 h-3" />
-                                                    ) : (
-                                                        <ChevronRight className="w-3 h-3" />
-                                                    )}
-                                                </button>
-                                            )}
-                                            <span onClick={() => handleSort(col.key)}>
-                                                {col.label}
-                                            </span>
-                                            <span onClick={() => handleSort(col.key)} className="cursor-pointer">
-                                                {sortKey === col.key ? (
-                                                    sortDir === "asc" ? (
-                                                        <ChevronUp className="w-3.5 h-3.5 text-olive" />
-                                                    ) : (
-                                                        <ChevronDown className="w-3.5 h-3.5 text-olive" />
-                                                    )
-                                                ) : (
-                                                    <ChevronsUpDown className="w-3.5 h-3.5 opacity-30" />
+            {/* Table (desktop) or Cards (mobile) */}
+            {useMobileCards ? (
+                <div className="divide-y divide-[#F0F0EE] max-h-[480px] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+                    {sortedData.length === 0 ? (
+                        <div className="px-4 py-8 text-center text-muted-foreground text-sm">
+                            {searchQuery
+                                ? `No results for "${searchQuery}"`
+                                : "No data available"}
+                        </div>
+                    ) : (
+                        sortedData.map((row, i) => (
+                            <div key={i}>
+                                {mobileCardRender!(row, i)}
+                            </div>
+                        ))
+                    )}
+                </div>
+            ) : (
+                <div ref={scrollContainerRef} className="overflow-x-auto max-h-[480px] overflow-y-auto">
+                    <table className="w-full">
+                        <thead className="sticky top-0 z-10">
+                            <tr className="bg-[#FAFAF8]">
+                                {visibleColumns.map((col) => {
+                                    const isGroupParent = col.groupParent && col.group;
+                                    const isExpanded = col.group ? expandedGroups.has(col.group) : false;
+                                    return (
+                                        <th
+                                            key={col.key}
+                                            className={`px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-text-body select-none transition-colors whitespace-nowrap ${alignClass(col.align)} ${col.sortValue || col.key ? "cursor-pointer hover:text-foreground" : ""}`}
+                                        >
+                                            <span className="inline-flex items-center gap-1">
+                                                {isGroupParent && (
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); toggleGroup(col.group!); }}
+                                                        className="cursor-pointer hover:text-olive transition-colors"
+                                                    >
+                                                        {isExpanded ? (
+                                                            <ChevronLeft className="w-3 h-3" />
+                                                        ) : (
+                                                            <ChevronRight className="w-3 h-3" />
+                                                        )}
+                                                    </button>
                                                 )}
+                                                <span onClick={() => handleSort(col.key)}>
+                                                    {col.label}
+                                                </span>
+                                                <span onClick={() => handleSort(col.key)} className="cursor-pointer">
+                                                    {sortKey === col.key ? (
+                                                        sortDir === "asc" ? (
+                                                            <ChevronUp className="w-3.5 h-3.5 text-olive" />
+                                                        ) : (
+                                                            <ChevronDown className="w-3.5 h-3.5 text-olive" />
+                                                        )
+                                                    ) : (
+                                                        <ChevronsUpDown className="w-3.5 h-3.5 opacity-30" />
+                                                    )}
+                                                </span>
                                             </span>
-                                        </span>
-                                    </th>
-                                );
-                            })}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {/* Virtual scroll spacer (top) */}
-                        {startIndex > 0 && (
-                            <tr style={{ height: startIndex * ROW_HEIGHT }} aria-hidden>
-                                <td colSpan={visibleColumns.length} />
+                                        </th>
+                                    );
+                                })}
                             </tr>
-                        )}
-                        {virtualRows.map((row, i) => (
-                            <tr key={startIndex + i} className="border-b border-[#F0F0EE] row-hover" style={{ height: ROW_HEIGHT }}>
-                                {visibleColumns.map((col) => (
+                        </thead>
+                        <tbody>
+                            {/* Virtual scroll spacer (top) */}
+                            {startIndex > 0 && (
+                                <tr style={{ height: startIndex * ROW_HEIGHT }} aria-hidden>
+                                    <td colSpan={visibleColumns.length} />
+                                </tr>
+                            )}
+                            {virtualRows.map((row, i) => (
+                                <tr key={startIndex + i} className="border-b border-[#F0F0EE] row-hover" style={{ height: ROW_HEIGHT }}>
+                                    {visibleColumns.map((col) => (
+                                        <td
+                                            key={col.key}
+                                            className={`px-3 py-2 text-[13px] ${alignClass(col.align)} ${col.group && !col.groupParent ? "bg-[#FAFAF8]/50" : ""}`}
+                                        >
+                                            {col.render(row)}
+                                        </td>
+                                    ))}
+                                </tr>
+                            ))}
+                            {/* Virtual scroll spacer (bottom) */}
+                            {endIndex < sortedData.length && (
+                                <tr style={{ height: (sortedData.length - endIndex) * ROW_HEIGHT }} aria-hidden>
+                                    <td colSpan={visibleColumns.length} />
+                                </tr>
+                            )}
+                            {sortedData.length === 0 && (
+                                <tr>
                                     <td
-                                        key={col.key}
-                                        className={`px-3 py-2 text-[13px] ${alignClass(col.align)} ${col.group && !col.groupParent ? "bg-[#FAFAF8]/50" : ""}`}
+                                        colSpan={visibleColumns.length}
+                                        className="px-4 py-8 text-center text-muted-foreground text-sm"
                                     >
-                                        {col.render(row)}
+                                        {searchQuery
+                                            ? `No results for "${searchQuery}"`
+                                            : "No data available"}
                                     </td>
-                                ))}
-                            </tr>
-                        ))}
-                        {/* Virtual scroll spacer (bottom) */}
-                        {endIndex < sortedData.length && (
-                            <tr style={{ height: (sortedData.length - endIndex) * ROW_HEIGHT }} aria-hidden>
-                                <td colSpan={visibleColumns.length} />
-                            </tr>
-                        )}
-                        {sortedData.length === 0 && (
-                            <tr>
-                                <td
-                                    colSpan={visibleColumns.length}
-                                    className="px-4 py-8 text-center text-muted-foreground text-sm"
-                                >
-                                    {searchQuery
-                                        ? `No results for "${searchQuery}"`
-                                        : "No data available"}
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
-            </div>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            )}
         </div>
     );
 }
