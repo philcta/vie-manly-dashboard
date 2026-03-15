@@ -572,7 +572,7 @@ export default function AiCoachPanel() {
                         exit={{ scale: 0, opacity: 0 }}
                         transition={{ type: "spring", stiffness: 260, damping: 20 }}
                         onClick={() => setIsOpen(true)}
-                        className="fixed bottom-6 right-6 z-[100] w-14 h-14 rounded-full
+                        className="fixed bottom-[88px] md:bottom-6 right-4 md:right-6 z-[100] w-14 h-14 rounded-full
               bg-gradient-to-br from-[#6B7355] to-[#4A5139]
               text-white shadow-lg shadow-[#6B7355]/25
               hover:shadow-xl hover:shadow-[#6B7355]/30
@@ -588,7 +588,7 @@ export default function AiCoachPanel() {
                 )}
             </AnimatePresence>
 
-            {/* Chat Panel */}
+            {/* Chat Panel — full-screen on mobile, floating panel on desktop */}
             <AnimatePresence>
                 {isOpen && (
                     <motion.div
@@ -596,165 +596,101 @@ export default function AiCoachPanel() {
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 20, scale: 0.95 }}
                         transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                        className="fixed bottom-6 right-6 z-[100]
-              w-[420px] max-w-[calc(100vw-48px)]
-              h-[600px] max-h-[calc(100vh-48px)]
-              bg-white rounded-2xl shadow-2xl
-              border border-[#EAEAE8]
+                        className="fixed z-[100]
+              inset-0 md:inset-auto
+              md:bottom-6 md:right-6
+              md:w-[420px] md:max-w-[calc(100vw-48px)]
+              md:h-[600px] md:max-h-[calc(100vh-48px)]
+              bg-white md:rounded-2xl shadow-2xl
+              md:border md:border-[#EAEAE8]
               flex flex-col overflow-hidden"
                     >
-                        {/* Header */}
+                        {/* Header — Row 1: Logo + Title + Close/Minimize */}
                         <div
-                            className="flex items-center justify-between px-5 py-4
-              bg-gradient-to-r from-[#1E1E2E] to-[#2A2A3E]
+                            className="bg-gradient-to-r from-[#1E1E2E] to-[#2A2A3E]
               border-b border-white/10"
                         >
-                            <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#6B7355] to-[#A8B094] flex items-center justify-center">
-                                    <Sparkles className="w-5 h-5 text-white" />
-                                </div>
-                                <div>
+                            <div className="flex items-center justify-between px-4 py-3">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#6B7355] to-[#A8B094] flex items-center justify-center flex-shrink-0">
+                                        <Sparkles className="w-4.5 h-4.5 text-white" />
+                                    </div>
                                     <h3 className="text-white font-semibold text-sm tracking-wide">
                                         AI Business Coach
                                     </h3>
-                                    <p className="text-[#7A7A8A] text-[11px]">
-                                        Powered by your live data
-                                    </p>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    {/* ▾ Minimize */}
+                                    <button
+                                        onClick={() => { setIsOpen(false); setShowDocs(false); }}
+                                        className="p-2 rounded-lg transition-all cursor-pointer text-[#7A7A8A] hover:text-white hover:bg-white/10"
+                                        title="Minimize — conversation is kept"
+                                    >
+                                        <ChevronDown className="w-4 h-4" />
+                                    </button>
+                                    {/* ✕ Close */}
+                                    <button
+                                        onClick={() => { clearChat(); setIsOpen(false); setShowDocs(false); }}
+                                        className="p-2 rounded-lg transition-all cursor-pointer text-[#555] hover:text-red-400 hover:bg-red-500/10"
+                                        title="Close & clear chat"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
                                 </div>
                             </div>
-                            <div ref={docsRef} className="flex items-center gap-1.5 relative">
-                                {/* Docs button — amber pill, always visible */}
+
+                            {/* Header — Row 2: Action buttons */}
+                            <div ref={docsRef} className="flex items-center gap-1 px-4 pb-2.5 relative">
+                                {/* Docs */}
                                 <button
                                     onClick={() => setShowDocs(!showDocs)}
-                                    className="flex items-center gap-1 px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+                                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer"
                                     style={{
-                                        color: "#FCD34D",
-                                        backgroundColor: showDocs ? "rgba(251,191,36,0.25)" : "rgba(251,191,36,0.1)",
-                                        boxShadow: showDocs ? "0 0 12px rgba(251,191,36,0.4)" : "none",
-                                        border: "1px solid rgba(251,191,36,0.25)",
+                                        color: showDocs ? "#FCD34D" : "#9CA3AF",
+                                        backgroundColor: showDocs ? "rgba(251,191,36,0.2)" : "rgba(255,255,255,0.05)",
                                     }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.backgroundColor = "rgba(251,191,36,0.25)";
-                                        e.currentTarget.style.boxShadow = "0 0 10px rgba(251,191,36,0.35)";
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        if (!showDocs) {
-                                            e.currentTarget.style.backgroundColor = "rgba(251,191,36,0.1)";
-                                            e.currentTarget.style.boxShadow = "none";
-                                        }
-                                    }}
-                                    title="Documents"
+                                    title="Documents & Guides"
                                 >
-                                    <FileText className="w-3.5 h-3.5" />
-                                    <span className="text-[10px] font-semibold tracking-wide">Docs</span>
+                                    <FileText className="w-3 h-3" />
+                                    Docs
                                 </button>
-                                {/* Home button — teal pill, only when in chat */}
-                                {messages.length > 0 && (
-                                    <motion.button
-                                        initial={{ opacity: 0, scale: 0.8 }}
-                                        animate={{ opacity: 1, scale: 1 }}
-                                        onClick={() => { clearChat(); setShowDocs(false); }}
-                                        className="flex items-center gap-1 px-2 py-1.5 rounded-lg transition-all duration-200 cursor-pointer"
-                                        style={{
-                                            color: "#5EEAD4",
-                                            backgroundColor: "rgba(45,212,191,0.12)",
-                                            border: "1px solid rgba(45,212,191,0.25)",
-                                        }}
-                                        onMouseEnter={(e) => {
-                                            e.currentTarget.style.backgroundColor = "rgba(45,212,191,0.25)";
-                                            e.currentTarget.style.boxShadow = "0 0 10px rgba(45,212,191,0.35)";
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.currentTarget.style.backgroundColor = "rgba(45,212,191,0.12)";
-                                            e.currentTarget.style.boxShadow = "none";
-                                        }}
-                                        title="Back to menu"
-                                    >
-                                        <Home className="w-3.5 h-3.5" />
-                                    </motion.button>
-                                )}
-                                {messages.length > 0 && (
-                                    <button
-                                        onClick={() => { clearChat(); setShowDocs(false); }}
-                                        className="p-2 text-[#7A7A8A] hover:text-white hover:bg-white/10 rounded-lg transition-all cursor-pointer"
-                                        title="Clear chat"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
-                                )}
-                                {/* History button */}
+                                {/* History */}
                                 <button
                                     onClick={() => { setShowHistory(!showHistory); if (!showHistory) loadHistory(); setShowDocs(false); }}
-                                    className="p-1.5 rounded-lg transition-all cursor-pointer"
+                                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer"
                                     style={{
-                                        color: showHistory ? "#818CF8" : "#7A7A8A",
-                                        backgroundColor: showHistory ? "rgba(129,140,248,0.15)" : "transparent",
-                                        border: showHistory ? "1px solid rgba(129,140,248,0.3)" : "1px solid transparent",
+                                        color: showHistory ? "#818CF8" : "#9CA3AF",
+                                        backgroundColor: showHistory ? "rgba(129,140,248,0.15)" : "rgba(255,255,255,0.05)",
                                     }}
-                                    onMouseEnter={(e) => {
-                                        if (!showHistory) {
-                                            e.currentTarget.style.color = "#A5B4FC";
-                                            e.currentTarget.style.backgroundColor = "rgba(129,140,248,0.1)";
-                                        }
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        if (!showHistory) {
-                                            e.currentTarget.style.color = "#7A7A8A";
-                                            e.currentTarget.style.backgroundColor = "transparent";
-                                        }
-                                    }}
-                                    title="Conversation history"
+                                    title="Past conversations"
                                 >
-                                    <Clock className="w-4 h-4" />
+                                    <Clock className="w-3 h-3" />
+                                    History
                                 </button>
-                                {/* PDF export — only when chat has messages */}
+                                {/* Export */}
                                 {messages.length > 0 && (
                                     <button
                                         onClick={handleExportPdf}
-                                        className="p-1.5 rounded-lg transition-all cursor-pointer"
-                                        style={{ color: "#7A7A8A" }}
-                                        onMouseEnter={(e) => {
-                                            e.currentTarget.style.color = "#F87171";
-                                            e.currentTarget.style.backgroundColor = "rgba(248,113,113,0.1)";
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            e.currentTarget.style.color = "#7A7A8A";
-                                            e.currentTarget.style.backgroundColor = "transparent";
-                                        }}
+                                        className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer"
+                                        style={{ color: "#9CA3AF", backgroundColor: "rgba(255,255,255,0.05)" }}
                                         title="Export to PDF"
                                     >
-                                        <Download className="w-4 h-4" />
+                                        <Download className="w-3 h-3" />
+                                        Export
                                     </button>
                                 )}
-                                {/* ▾ Minimize — collapses panel, keeps conversation alive */}
-                                <button
-                                    onClick={() => { setIsOpen(false); setShowDocs(false); }}
-                                    className="flex items-center gap-0.5 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer"
-                                    style={{
-                                        color: "#FBBF24",
-                                        backgroundColor: "rgba(251,191,36,0.12)",
-                                        border: "1px solid rgba(251,191,36,0.3)",
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.backgroundColor = "rgba(251,191,36,0.25)";
-                                        e.currentTarget.style.boxShadow = "0 0 10px rgba(251,191,36,0.3)";
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.backgroundColor = "rgba(251,191,36,0.12)";
-                                        e.currentTarget.style.boxShadow = "none";
-                                    }}
-                                    title="Minimize — conversation is kept"
-                                >
-                                    <ChevronDown className="w-4 h-4" />
-                                </button>
-                                {/* ✕ Close — clears chat and closes */}
-                                <button
-                                    onClick={() => { clearChat(); setIsOpen(false); setShowDocs(false); }}
-                                    className="p-1.5 text-[#555] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all cursor-pointer"
-                                    title="Close & clear chat"
-                                >
-                                    <X className="w-3.5 h-3.5" />
-                                </button>
+                                {/* Home / Clear */}
+                                {messages.length > 0 && (
+                                    <button
+                                        onClick={() => { clearChat(); setShowDocs(false); }}
+                                        className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer"
+                                        style={{ color: "#9CA3AF", backgroundColor: "rgba(255,255,255,0.05)" }}
+                                        title="New conversation"
+                                    >
+                                        <Trash2 className="w-3 h-3" />
+                                        Clear
+                                    </button>
+                                )}
 
                                 {/* Docs dropdown */}
                                 <AnimatePresence>

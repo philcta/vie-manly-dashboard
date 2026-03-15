@@ -332,6 +332,11 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+/* Safe area for bottom nav on iPhones with home indicator */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 /* Tighter page padding on small screens */
 @media (max-width: 768px) {
 
@@ -347,7 +352,7 @@ html {
 
   /* Smaller page titles */
   h1 {
-    font-size: 1.375rem !important;
+    font-size: 1.25rem !important;
     line-height: 1.3 !important;
   }
 
@@ -363,7 +368,7 @@ html {
     font-size: 0.7rem !important;
   }
 
-  /* Period selector: scroll horizontally */
+  /* Period selector: scroll horizontally, larger touch targets */
   .flex.items-center.gap-3 {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -372,6 +377,12 @@ html {
 
   .flex.items-center.gap-3::-webkit-scrollbar {
     display: none;
+  }
+
+  /* Period selector pills: taller for touch */
+  .flex.items-center.gap-3 button {
+    min-height: 36px;
+    white-space: nowrap;
   }
 }
 

@@ -63,7 +63,7 @@ export default function AppSidebar() {
 
     return (
         <aside
-            className={`fixed top-0 left-0 h-screen ${width} bg-[#1E1E2E] flex flex-col z-50 transition-all duration-300 ease-in-out`}
+            className={`fixed top-0 left-0 h-screen ${width} bg-[#1E1E2E] hidden md:flex flex-col z-50 transition-all duration-300 ease-in-out`}
         >
             {/* Logo */}
             <div className="px-3 py-6 flex flex-col items-center border-b border-white/6">
