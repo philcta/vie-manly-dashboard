@@ -122,20 +122,29 @@ async function buildBusinessContext(): Promise<string> {
         )
         .join("\n");
 
-    // ── Top categories (latest week + all weeks for margin) ──────────
+    // ── Top categories: side-by-side W11 vs W10 (no extra query) ──────
     const catRows = categoryStats.data || [];
-    const latestWeek = catRows[0]?.week_start;
-    const topCats = catRows
-        .filter((c) => c.week_start === latestWeek)
-        .slice(0, 15)
-        .map(
-            (c) =>
-                `${c.category} (${c.side}): $${c.total_net_sales?.toLocaleString()}, ${c.pct_of_total_sales?.toFixed(1)}% of sales, ` +
-                `Margin ${c.category_margin_pct?.toFixed(1) ?? "N/A"}%, Est Gross Profit $${c.estimated_gross_profit?.toFixed(0) ?? "N/A"}` +
-                (c.wow_sales_change_pct != null
-                    ? `, ${c.wow_sales_change_pct > 0 ? "+" : ""}${c.wow_sales_change_pct.toFixed(1)}% WoW`
-                    : "")
-        )
+    const catWeeks = [...new Set(catRows.map((c) => c.week_start))].sort().reverse();
+    const latestWeek = catWeeks[0];
+    const priorWeek = catWeeks[1];
+    const latestCats = catRows.filter((c) => c.week_start === latestWeek).slice(0, 15);
+    const priorCats = catRows.filter((c) => c.week_start === priorWeek);
+
+    const topCats = latestCats
+        .map((c) => {
+            const prior = priorCats.find((p) => p.category === c.category);
+            const priorSales = prior?.total_net_sales;
+            const priorProfit = prior?.estimated_gross_profit;
+            const wowPct = priorSales ? (((c.total_net_sales - priorSales) / priorSales) * 100).toFixed(1) : "N/A";
+            return `${c.category} (${c.side}): ` +
+                `THIS WEEK $${c.total_net_sales?.toLocaleString()}, ` +
+                `LAST WEEK $${priorSales?.toLocaleString() ?? "N/A"}, ` +
+                `Change ${typeof wowPct === "string" && wowPct !== "N/A" && parseFloat(wowPct) > 0 ? "+" : ""}${wowPct}%, ` +
+                `Margin ${c.category_margin_pct?.toFixed(1) ?? "N/A"}% (fixed per category), ` +
+                `Est GP this week $${c.estimated_gross_profit?.toFixed(0) ?? "N/A"}, ` +
+                `Est GP last week $${priorProfit?.toFixed(0) ?? "N/A"}, ` +
+                `${c.pct_of_total_sales?.toFixed(1)}% of total sales`;
+        })
         .join("\n");
 
     // ── Member trends (enriched) ─────────────────────────────────────
@@ -323,13 +332,22 @@ async function buildBusinessContext(): Promise<string> {
         .map((r: Record<string, unknown>) => `${r.dow_name}: ${r.signup_count} sign-ups`)
         .join(", ");
 
+    // Data freshness timestamp
+    const syncTimestamp = new Date().toLocaleString("en-AU", {
+        timeZone: "Australia/Sydney",
+        weekday: "short", day: "numeric", month: "short", year: "numeric",
+        hour: "2-digit", minute: "2-digit",
+    });
+
     return `
 ## VIE Market — Business Intelligence (Last 4 Weeks)
+**Data as of: ${syncTimestamp} AEST**
 
 ### Weekly Sales Overview (incl. Discounts)
 ${storeContext || "No data available yet."}
 
-### Top 15 Categories (Latest Week) — incl. Margin & Gross Profit
+### Top 15 Categories — This Week vs Last Week (Side-by-Side)
+IMPORTANT: Margin % is a fixed rate per category (not variable by week). Do NOT invent different margin values for different weeks.
 ${topCats || "No category data yet."}
 
 ### Member Engagement & Lifecycle
@@ -411,6 +429,15 @@ ${(() => {
 
 const SYSTEM_PROMPT = `You are the AI Business Coach for VIE Market, an organic grocery and café in Manly, Sydney.
 
+## CRITICAL DATA INTEGRITY RULES (NEVER BREAK THESE)
+1. ONLY use numbers that appear in the "Current Business Data" section below. If a number is not there, say "I don't have that data."
+2. NEVER invent, estimate, or approximate figures. Every dollar amount, percentage, and count you cite must come directly from the data provided.
+3. When the user asks about a specific product or category NOT in your data, say: "I don't have item-level data for [X]. I can see the top 15 sellers and items flagged with alerts."
+4. Category margin percentages are FIXED per category — they do NOT change week to week. Never show different margin values for different weeks.
+5. If the data shows "N/A" or is missing, say "data not available" — do not fill in a guess.
+6. When showing comparisons, the "THIS WEEK" and "LAST WEEK" values in the category data are exact. Use those values directly.
+7. When you calculate a derived metric (like % change), show your working: "Change = ($3,595 - $3,475) / $3,475 × 100 = +3.5%"
+
 Your role:
 - Provide actionable, data-driven business advice
 - Analyse sales trends, labour efficiency, member engagement, and product performance
@@ -418,7 +445,6 @@ Your role:
 - Suggest concrete improvements with expected impact
 - Be concise but insightful; use bullet points and bold key takeaways
 - Speak as a friendly, experienced business consultant
-- When data is missing or insufficient, say so honestly
 
 Inventory & Stock Expertise:
 - You have deep knowledge of the store's inventory: best sellers, margins, stock levels, sell-through rates, vendor performance, and problem items
@@ -475,7 +501,7 @@ export async function POST(req: Request) {
     const modelMessages = await convertToModelMessages(messages as UIMessage[]);
 
     const result = streamText({
-        model: openai("gpt-4o-mini"),
+        model: openai("gpt-4o"),
         system: `${SYSTEM_PROMPT}\n\n## Current Business Data\n\n${context}`,
         messages: modelMessages,
         onFinish: async ({ text }) => {
