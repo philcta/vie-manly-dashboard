@@ -183,7 +183,7 @@ export async function exportConversationToPdf(conv: ConversationExport) {
     const kpiTargets = await fetchKpiTargets();
     const html = buildHtml(conv, kpiTargets);
 
-    // Open a new window and print
+    // Open a new window with the styled report (user can Ctrl+P / Save as PDF)
     const win = window.open("", "_blank");
     if (!win) {
         alert("Please allow popups to export PDF.");
@@ -191,11 +191,6 @@ export async function exportConversationToPdf(conv: ConversationExport) {
     }
     win.document.write(html);
     win.document.close();
-
-    // Give fonts a moment to load, then trigger print
-    setTimeout(() => {
-        win.print();
-    }, 600);
 }
 
 export type { ChatMessage, ConversationExport };
