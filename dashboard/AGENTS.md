@@ -1,7 +1,7 @@
 # AGENTS.md — VIE. MANLY Dashboard Project
 
 > **This file is the project brain. Read it first in every new conversation.**
-> Last updated: 2026-03-14
+> Last updated: 2026-03-16
 
 ## Identity
 
@@ -18,6 +18,7 @@
 - **Database**: Supabase PostgreSQL (project ID: `heavnfayolxrgmxkkrvr`)
 - **Hosting**: Vercel (auto-deploy from `master` branch)
 - **Charts**: Recharts | **Animation**: Framer Motion | **UI Primitives**: Radix UI
+- **AI SDK**: `ai` v6 + `@ai-sdk/openai` v3 + `@ai-sdk/react` v2 (GPT-4o)
 - **Repo**: `github.com/philcta/vie-manly-dashboard` branch `master`
 
 ## Key Files to Read First
@@ -26,8 +27,13 @@
 |---|---|
 | `docs/architecture.md` | Full project structure, Supabase tables/RPCs, formulas, design system, deployment |
 | `docs/formulas_reference.md` | Every business calculation (margins, labour, profit, member metrics) |
+| `docs/ai_coach_implementation.md` | **AI Coach full blueprint** — all 4 phases, architecture, code, reuse guide |
+| `docs/ai_coach_supabase_rpcs.md` | **AI Coach SQL** — all RPCs, indexes, tables, RLS policies |
 | `docs/business_improvement_plan.md` | Data-driven business analysis with 6 prioritised actions |
 | `app/page.tsx` | Overview dashboard — 12 KPI cards, charts, comparison logic |
+| `app/api/chat/route.ts` | **AI Coach API** — context builder, system prompt, 4 tools, streaming |
+| `components/ai-coach-panel.tsx` | **AI Coach UI** — 53 questions, 5 categories, navigation, history, favorites |
+| `lib/export-pdf.ts` | PDF export with markdown table/chart formatting |
 | `app/members/page.tsx` | Members page — loyalty, spending patterns, CSV export |
 | `app/inventory/page.tsx` | Inventory page — stock intelligence, alerts, CSV export |
 | `app/staff/page.tsx` | Staff page — labour costs, shift breakdown |
@@ -48,6 +54,15 @@
 - **Real Profit $** = `Net Sales × (effectiveMargin / 100) - Labour Cost`
 - **Labour is split** Cafe/Retail using `staff_shifts.business_side` (Bar → Cafe, Retail → Retail, Overhead → Cafe)
 - **Barista split**: 80/20 rule — barista labour is 80% Cafe, 20% Retail
+
+### KPI Targets (Active)
+| Metric | Target | Timeline | Category |
+|---|---|---|---|
+| Labour vs Sales % | ≤ 24% | 4 weeks | profitability |
+| Average Sale | ≥ $24.00 | 8 weeks | revenue |
+| Real Profit Margin | ≥ 25% | 3 months | profitability |
+| Member Revenue % | +5% vs current | 3 months | members |
+| Dead/Overstock Items | −30% vs current | 6 weeks | inventory |
 
 ### Data Pipeline — `scheduled_sync.py` (every 2 hours)
 
@@ -71,12 +86,45 @@ The automated sync runs 6 phases in sequence:
 - `member_loyalty` synced from Square Loyalty API (balances + lifetime points)
 - `loyalty_events` synced from Square Loyalty Events API (full ledger: accumulate, redeem, create_reward)
 
+## AI Coach (Built 2026-03-14 to 2026-03-16)
+
+> **Full implementation guide**: `docs/ai_coach_implementation.md`
+> **SQL reference**: `docs/ai_coach_supabase_rpcs.md`
+
+### Architecture
+- **Phase 1**: Pre-computed weekly context → streamed to GPT-4o in system prompt (zero latency)
+- **Phase 2**: Conversation persistence + history + favorites + PDF export
+- **Phase 3**: Anti-hallucination guardrails (model upgrade to GPT-4o, data integrity rules)
+- **Phase 4**: Tool use — 4 Supabase RPC functions called on-demand by the AI
+
+### AI Tools (RPC Functions)
+| Tool | Purpose | Avg Response |
+|---|---|---|
+| `lookup_product(search_term)` | Fuzzy product search (4,290 items) | 7ms |
+| `lookup_category_products(cat_name)` | All products in a category | 9ms |
+| `get_daily_sales(num_days)` | Day-by-day sales breakdown | 33ms |
+| `get_mtd_summary()` | Month-to-date totals | 21ms |
+
+### UI Components
+- **Floating panel**: chat in bottom-right, full-screen on mobile
+- **5 question categories**: Labour (10), Margins (10), Members (10), Stock (12), Game Plan (11) = 53 total
+- **Navigation**: Home button (header), New Topic banner (top of conversation), Browse Topics strip (collapsible above input)
+- **History**: past conversations saved to Supabase, restorable
+- **Favorites**: star-to-bookmark any question (localStorage)
+- **Export**: PDF with markdown table formatting preserved
+
+### AI SDK v6 Gotchas
+- Use `inputSchema` not `parameters` in tool definitions
+- Use `stopWhen: stepCountIs(N)` not `maxSteps: N`
+- Use inline tool objects, not `tool()` helper (Zod v3/v4 compatibility)
+- `import { stepCountIs } from "ai"` — in main `ai` package
+
 ## Known Gotchas & Past Bugs
 
 1. **`business_side` values**: Staff shifts use "Bar" (not "Cafe"), "Retail", "Overhead". Code maps Bar+Overhead → Cafe.
 2. **Function overloading (FIXED 2026-03-14)**: `get_category_daily` had TWO versions — one with `(text, text)` and one with `(date, date)` params. PostgREST can't disambiguate → `PGRST203` error → `Promise.all()` crash → entire dashboard shows $0. Fix: drop the `(date, date)` version. **NEVER create a function with same name but different param types.**
 3. **Duplicate transactions (FIXED 2026-03-13)**: Root cause was 3 scripts generating `row_key` in incompatible formats: `rebuild_from_square.py` used `{order_id}-LI-{idx}`, `smart_backfill.py` used plain concatenation, `square_sync.py` used MD5 hash. All three now use the deterministic `{order_id}-LI-{idx}` format. Also fixed `smart_backfill.py` to use `closed_at` instead of `created_at` for consistency.
-4. **`is_closed` flag**: `daily_store_stats.is_closed = true` marks only genuinely closed/transition days (Aug 18, Aug 20 — sub-$100 sales during ownership changeover). Historical data pre-Aug 20 2025 is now `is_closed = false` so it shows on the dashboard. Labour/profit metrics show N/A for periods spanning pre-Aug 20 since no shift data exists.
+4. **`is_closed` flag**: `daily_store_stats.is_closed = true` marks only genuinely closed/transition days (Aug 18, Aug 20 — sub-$100 sales during ownership changeover). Historical data pre-Aug 20 is now `is_closed = false` so it shows on the dashboard. Labour/profit metrics show N/A for periods spanning pre-Aug 20 since no shift data exists.
 12. **PostgREST 1000-row limit**: RPCs returning `SETOF` are capped at 1000 rows by PostgREST's server-side `max_rows`. Client-side `.limit()` CANNOT override this. Workaround: query tables directly with `.range()` pagination, or use pre-computed summary tables. The `daily_category_stats` table + direct `.from()` query with `.range()` pagination is the current solution.
 13. **Pre-Aug 20 data & N/A cards**: The store opened Aug 20, 2025. Pre-Aug 20 data is CSV-imported from previous owner. No labour/shift data exists before this date. Dashboard shows N/A on Labour Cost, Labour %, Real Profit Margin, Real Profit $ when period includes pre-Aug 20. Chart greys out "Real Profit %" and "Labour %" toggles. Constant `STORE_OPENING_DATE = "2025-08-20"` in both `app/page.tsx` and `metric-timeseries-chart.tsx`.
 14. **Promise.all crash pattern**: All 19 data fetches in `loadData()` are wrapped in one `Promise.all()`. If ANY single fetch throws, ALL data shows as zero/empty. Always check browser console for the specific failing RPC/query.
@@ -87,6 +135,7 @@ The automated sync runs 6 phases in sequence:
 9. **Staff pay period dates**: `getPayPeriod()` in `lib/queries/staff.ts` must use UTC-only arithmetic (`Date.UTC()`, `getUTCDate()` etc). Using `toISOString()` or local-time ms arithmetic causes dates to shift by 1 day in Australian timezone (UTC+11). Also vulnerable to DST transitions if using `86400000ms` with local time.
 10. **RLS enabled on all tables (2026-03-13)**: Row Level Security is now active. Dashboard (anon key) has read-only access to most tables. Write access is only granted on `staff_rates` (rate editor) and `category_mappings` (side assignment). Python scripts use `service_role` key which bypasses RLS. SQL policies are in `sql/enable_rls.sql`.
 11. **Old Square account customer IDs**: The store had a previous owner with a different Square account. ~1,664 old customer IDs exist in transactions but have no matching `member_daily_stats`. These are reconciled via `customer_id_mapping` table (231 mappings). The old IDs are expected — not a bug.
+15. **AI SDK v6 `tool()` helper breaks with Zod v3**: The `tool()` helper from `ai` requires Zod v4. If project uses Zod v3, define tools inline with `inputSchema` property instead.
 
 ## Performance Optimizations Done
 
@@ -97,6 +146,7 @@ The automated sync runs 6 phases in sequence:
 5. **Composite indexes**: `idx_dis_item_date`, `idx_inv_source_product`
 6. **Materialized views**: `mv_member_spending_patterns` for expensive spending pattern queries
 7. **Pre-computed `daily_category_stats`**: Eliminates expensive `daily_item_summary` GROUP BY at query time for category charts. 38,547 rows pre-aggregated by date+category+side.
+8. **AI Coach tool RPCs indexed**: `pg_trgm` GIN indexes on `product_name` + `category` (7ms fuzzy search). B-tree on `transactions.date` (33ms daily aggregation).
 
 ## AI Coach Knowledge Base (Created 2026-03-14)
 
@@ -115,11 +165,58 @@ The automated sync runs 6 phases in sequence:
 
 **Dimension values**: `side`: All/Cafe/Retail | `day_type`: all/weekday/weekend | `customer_type`: all/member/non_member | `age_group`: all/teen/adult | `dow`: 0-6 (Sun-Sat)
 
-**Next steps**: Write backfill script (`scripts/backfill_weekly_stats.py`), integrate into `scheduled_sync.py`, build AI chat panel UI.
-
-**Full audit**: Every dashboard KPI, chart metric, and table column was audited — see `dashboard_metrics_audit.md` artifact.
-
 ## Session Log (Most Recent First)
+
+### 2026-03-16 — AI Coach Navigation Overhaul + Enriched Questions
+
+**Objective**: Improve AI Coach navigation (users got trapped in conversations) and enrich question categories
+
+**What was done**:
+1. **Enriched all 5 question categories** with data-backed queries — 39 → 53 questions total
+   - Labour: Added revenue-per-hour, labour gap, 4-week trend (10 questions)
+   - Margins: Added MTD performance, Cafe vs Retail split, KPI status (10 questions)
+   - Members: Added re-engagement SMS, points redemption, reactivation revenue impact (10 questions)
+   - Stock: Added dead stock capital audit, OOS revenue loss, tool-based product lookup (12 questions)
+   - Game Plan: Added all-5-KPI status check, promotional plan, MTD pace check (11 questions)
+2. **Navigation overhaul** — 3 new navigation elements:
+   - **Home button** in header — always visible, returns to welcome screen
+   - **"New topic" banner** — at top of conversation messages with question counter
+   - **"Browse topics" strip** — collapsible panel above input with full category browser
+3. Removed old "Clear" button (replaced by Home), removed old "New Conversation" (replaced by New Topic)
+
+**Data verified for questions**:
+- 410 dead stock items, 400 overstock, 248 out-of-stock still in demand
+- 593 high-margin underselling items, 841 items with stockout risk dates
+- 5 active KPI targets in `kpi_targets` table
+- 15,867 loyalty points earned, 0 redeemed
+- Member lifecycle data available: active/cooling/at-risk/churned
+
+**Commits**: `62c245d` (enriched questions), `4486775` (navigation overhaul)
+
+### 2026-03-15 — AI Coach Phase 4 (Tool Use) + Phases 2-3
+
+**Objective**: Give the AI Coach direct database query capabilities + conversation persistence + anti-hallucination
+
+**Phase 2 — Conversation Persistence**:
+- Auto-save conversations to `ai_coach_conversations` table
+- History panel (load, restore, delete, export from history)
+- Favorites system (localStorage, star toggle on questions, bulk delete)
+- PDF export with markdown table formatting preserved (fixed print dialog auto-open)
+
+**Phase 3 — Anti-Hallucination**:
+- Upgraded model to GPT-4o (from gpt-4o-mini)
+- Added side-by-side current/prior week comparison data
+- Added data freshness timestamp
+- Strict system prompt rules preventing number fabrication
+
+**Phase 4 — Tool Use**:
+- Created 4 Supabase RPC functions: `lookup_product`, `lookup_category_products`, `get_daily_sales`, `get_mtd_summary`
+- Added `pg_trgm` GIN indexes → response times from 287ms → 7ms
+- Integrated tools in `route.ts` using AI SDK v6 syntax
+- Fixed `inputSchema` vs `parameters` (v6 API change) and `stepCountIs` vs `maxSteps`
+- Tested: kombucha product lookup and MTD summary both returned accurate results
+
+**Migrations**: `20260314042907_fix_tool_rpcs_correct_columns.sql`, `20260314043140_add_indexes_for_tool_rpcs.sql`
 
 ### 2026-03-14 (PM) — AI Coach Knowledge Base Tables Created
 
@@ -145,13 +242,6 @@ The automated sync runs 6 phases in sequence:
 - `supabase/migrations/01_weekly_store_stats.sql` through `08_coach_conversations.sql`
 - `supabase/migrations/20260314_create_weekly_knowledge_base.sql` (combined)
 - `scripts/create_weekly_knowledge_base.py` (helper script, optional)
-
-**AI Coach Plan** (for future sessions):
-- Model: OpenAI gpt-4o-mini ($2-5/mo) or Anthropic Claude via API key
-- Frontend: Floating Action Button → slide-out chat panel
-- Backend: Vercel AI SDK + Next.js API route (`app/api/chat/route.ts`)
-- Context: `buildBusinessContext()` queries weekly tables, injects into system prompt
-- Memory: `coach_conversations` table stores chat history per session
 
 ### 2026-03-14 (AM) — Pre-Aug 20 Historical Data + Category Chart Fix
 - **Investigated missing historical data**: $2.19M in CSV-imported sales (Jan 2024 – Aug 2025) was hidden because all 590 pre-Aug 18 rows in `daily_store_stats` had `is_closed = true`
