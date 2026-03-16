@@ -796,7 +796,7 @@ export default function AiCoachPanel() {
 
                         {/* ═══ Persistent Category Nav Bar ═══ */}
                         <div className="relative">
-                            <div className="flex items-center gap-1 px-3 py-1.5 bg-[#F6F6F3] border-b border-[#E8E8E4]">
+                            <div className="flex items-center gap-1 px-2 py-1.5 bg-[#F6F6F3] border-b border-[#E8E8E4] overflow-x-auto" style={{ scrollbarWidth: "none", msOverflowStyle: "none", WebkitOverflowScrolling: "touch" }}>
                                 {QUESTION_CATEGORIES.map((cat) => (
                                     <button
                                         key={cat.id}
@@ -804,15 +804,15 @@ export default function AiCoachPanel() {
                                             setActiveCategory(activeCategory === cat.id ? null : cat.id);
                                             setShowHistory(false); setShowFavorites(false); setShowDocs(false);
                                         }}
-                                        className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium
-                                          border transition-all duration-150 cursor-pointer whitespace-nowrap
+                                        className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium
+                                          border transition-all duration-150 cursor-pointer whitespace-nowrap flex-shrink-0
                                           ${activeCategory === cat.id
                                                 ? `${cat.activeBg} ${cat.color} shadow-sm`
                                                 : "bg-white border-[#E0E0DC] text-[#777] hover:bg-[#EEEEEA] hover:text-[#555]"
                                             }`}
                                     >
-                                        <span className="text-[12px]">{cat.emoji}</span>
-                                        <span className="hidden sm:inline">{cat.label}</span>
+                                        <span className="text-[11px]">{cat.emoji}</span>
+                                        <span>{cat.label}</span>
                                     </button>
                                 ))}
                             </div>
@@ -1065,11 +1065,11 @@ export default function AiCoachPanel() {
                                 <div className="flex flex-col h-full overflow-y-auto px-1 py-2"
                                     style={{ scrollbarWidth: "thin", scrollbarColor: "#EAEAE8 transparent" }}>
                                     {/* Welcome — compact, no icon */}
-                                    <div className="text-center px-3 pt-4 pb-3">
-                                        <h4 className="font-semibold text-[#1A1A1A] text-base mb-0.5">
+                                    <div className="text-center px-3 pt-1 pb-2">
+                                        <h4 className="font-semibold text-[#1A1A1A] text-[15px] mb-0">
                                             Hi Boss! 👋
                                         </h4>
-                                        <p className="text-[#8A8A8A] text-[12px] leading-relaxed">
+                                        <p className="text-[#8A8A8A] text-[11px] leading-relaxed">
                                             Pick a topic above or ask anything below
                                         </p>
                                     </div>

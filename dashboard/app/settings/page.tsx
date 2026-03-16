@@ -81,7 +81,7 @@ export default function SettingsPage() {
 
             {/* General */}
             <AccordionSection title="General" defaultOpen>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div>
                         <label className={labelStyle}>Store Name</label>
                         <input type="text" value={storeName} onChange={(e) => setStoreName(e.target.value)} className={inputStyle} />
@@ -114,7 +114,7 @@ export default function SettingsPage() {
                                 <button
                                     key={opt.value}
                                     onClick={() => setDefaultRange(opt.value)}
-                                    className={`flex-1 px-3 py-2 text-xs font-medium transition-colors duration-200 cursor-pointer ${defaultRange === opt.value ? "bg-olive text-white" : "text-text-body hover:bg-olive-surface"
+                                    className={`flex-1 px-2 sm:px-3 py-2 text-[11px] sm:text-xs font-medium transition-colors duration-200 cursor-pointer ${defaultRange === opt.value ? "bg-olive text-white" : "text-text-body hover:bg-olive-surface"
                                         }`}
                                 >
                                     {opt.label}
@@ -127,24 +127,24 @@ export default function SettingsPage() {
 
             {/* Inventory Thresholds */}
             <AccordionSection title="Inventory Thresholds" defaultOpen>
-                <div className="grid grid-cols-2 gap-8">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8">
                     <div>
                         <h4 className="text-sm font-semibold text-foreground mb-3">Profit Color Bands</h4>
                         <div className="space-y-3">
                             <div className="flex items-center gap-3">
-                                <div className="w-4 h-4 rounded-full bg-olive" />
+                                <div className="w-4 h-4 rounded-full bg-olive flex-shrink-0" />
                                 <span className="text-sm text-text-body flex-1">Green above</span>
                                 <input type="number" value={greenAbove} onChange={(e) => setGreenAbove(Number(e.target.value))} className="w-16 px-2 py-1 text-sm text-right border border-border rounded-lg tabular-nums" />
                                 <span className="text-sm text-text-muted">%</span>
                             </div>
                             <div className="flex items-center gap-3">
-                                <div className="w-4 h-4 rounded-full bg-warning" />
+                                <div className="w-4 h-4 rounded-full bg-warning flex-shrink-0" />
                                 <span className="text-sm text-text-body flex-1">Orange above</span>
                                 <input type="number" value={orangeAbove} onChange={(e) => setOrangeAbove(Number(e.target.value))} className="w-16 px-2 py-1 text-sm text-right border border-border rounded-lg tabular-nums" />
                                 <span className="text-sm text-text-muted">%</span>
                             </div>
                             <div className="flex items-center gap-3">
-                                <div className="w-4 h-4 rounded-full bg-coral" />
+                                <div className="w-4 h-4 rounded-full bg-coral flex-shrink-0" />
                                 <span className="text-sm text-text-body flex-1">Red below</span>
                                 <input type="number" value={redBelow} onChange={(e) => setRedBelow(Number(e.target.value))} className="w-16 px-2 py-1 text-sm text-right border border-border rounded-lg tabular-nums" />
                                 <span className="text-sm text-text-muted">%</span>
@@ -204,16 +204,16 @@ export default function SettingsPage() {
             <AccordionSection title="Member Criteria" defaultOpen>
                 <div>
                     <h4 className="text-sm font-semibold text-foreground mb-3">Churn Thresholds</h4>
-                    <div className="grid grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                         <div className="space-y-3">
                             <div className="flex items-center gap-3">
-                                <div className="w-4 h-4 rounded-full bg-positive" />
+                                <div className="w-4 h-4 rounded-full bg-positive flex-shrink-0" />
                                 <span className="text-sm text-text-body flex-1">Active &lt;</span>
                                 <input type="number" value={activeDays} onChange={(e) => setActiveDays(Number(e.target.value))} className="w-16 px-2 py-1 text-sm text-right border border-border rounded-lg tabular-nums" />
                                 <span className="text-sm text-text-muted">days</span>
                             </div>
                             <div className="flex items-center gap-3">
-                                <div className="w-4 h-4 rounded-full bg-warning" />
+                                <div className="w-4 h-4 rounded-full bg-warning flex-shrink-0" />
                                 <span className="text-sm text-text-body flex-1">Cooling &lt;</span>
                                 <input type="number" value={coolingDays} onChange={(e) => setCoolingDays(Number(e.target.value))} className="w-16 px-2 py-1 text-sm text-right border border-border rounded-lg tabular-nums" />
                                 <span className="text-sm text-text-muted">days</span>
@@ -221,13 +221,13 @@ export default function SettingsPage() {
                         </div>
                         <div className="space-y-3">
                             <div className="flex items-center gap-3">
-                                <div className="w-4 h-4 rounded-full bg-coral" />
+                                <div className="w-4 h-4 rounded-full bg-coral flex-shrink-0" />
                                 <span className="text-sm text-text-body flex-1">At Risk &lt;</span>
                                 <input type="number" value={atRiskDays} onChange={(e) => setAtRiskDays(Number(e.target.value))} className="w-16 px-2 py-1 text-sm text-right border border-border rounded-lg tabular-nums" />
                                 <span className="text-sm text-text-muted">days</span>
                             </div>
                             <div className="flex items-center gap-3">
-                                <div className="w-4 h-4 rounded-full bg-[#8B0000]" />
+                                <div className="w-4 h-4 rounded-full bg-[#8B0000] flex-shrink-0" />
                                 <span className="text-sm text-text-body flex-1">Churned &gt;</span>
                                 <input type="number" value={churnedDays} onChange={(e) => setChurnedDays(Number(e.target.value))} className="w-16 px-2 py-1 text-sm text-right border border-border rounded-lg tabular-nums" />
                                 <span className="text-sm text-text-muted">days</span>
@@ -252,7 +252,7 @@ export default function SettingsPage() {
             </AccordionSection>
 
             <AccordionSection title="Chart Appearance">
-                <div className="flex gap-8">
+                <div className="flex flex-wrap gap-4 sm:gap-8">
                     {[
                         { label: "Primary Color", color: "#6B7355" },
                         { label: "Comparison", color: "#A8B094" },
@@ -272,7 +272,7 @@ export default function SettingsPage() {
             </AccordionSection>
 
             {/* Save buttons */}
-            <div className="flex gap-3 justify-end pt-2">
+            <div className="flex flex-col sm:flex-row gap-3 sm:justify-end pt-2">
                 <button className="px-6 py-2.5 bg-olive text-white text-sm font-semibold rounded-lg hover:bg-olive-dark transition-colors duration-200 cursor-pointer">
                     Save Settings
                 </button>

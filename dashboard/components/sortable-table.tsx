@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { ChevronUp, ChevronDown, ChevronsUpDown, ChevronRight, ChevronLeft, Search, X } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, ChevronRight, ChevronLeft, Search, X, ArrowUp } from "lucide-react";
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -117,6 +117,23 @@ export function SortableTable<T extends Record<string, unknown>>({
         return () => mql.removeEventListener("change", update);
     }, []);
     const useMobileCards = isMobile && !!mobileCardRender;
+
+    // Scroll-to-top visibility in mobile card view
+    const mobileScrollRef = useRef<HTMLDivElement>(null);
+    const mobileTopSentinelRef = useRef<HTMLDivElement>(null);
+    const [showMobileScrollTop, setShowMobileScrollTop] = useState(false);
+
+    useEffect(() => {
+        const sentinel = mobileTopSentinelRef.current;
+        const container = mobileScrollRef.current;
+        if (!sentinel || !container) return;
+        const obs = new IntersectionObserver(
+            ([entry]) => setShowMobileScrollTop(!entry.isIntersecting),
+            { root: container, threshold: 0 }
+        );
+        obs.observe(sentinel);
+        return () => obs.disconnect();
+    }, [useMobileCards]);
 
     // Paginated mobile cards — avoid rendering 6000+ DOM nodes at once
     const MOBILE_PAGE_SIZE = 50;
@@ -320,7 +337,9 @@ export function SortableTable<T extends Record<string, unknown>>({
 
             {/* Table (desktop) or Cards (mobile) */}
             {useMobileCards ? (
-                <div className="max-h-[600px] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+                <div ref={mobileScrollRef} className="relative max-h-[600px] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+                    {/* Sentinel for scroll-to-top detection */}
+                    <div ref={mobileTopSentinelRef} className="h-0 w-0" aria-hidden />
                     {sortedData.length === 0 ? (
                         <div className="px-4 py-8 text-center text-muted-foreground text-sm">
                             {searchQuery
@@ -345,6 +364,17 @@ export function SortableTable<T extends Record<string, unknown>>({
                                 </button>
                             )}
                         </>
+                    )}
+                    {/* Floating scroll-to-top */}
+                    {showMobileScrollTop && (
+                        <button
+                            onClick={() => mobileScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+                            className="sticky bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#1E1E2E]/85 text-white text-xs font-medium shadow-lg backdrop-blur-sm border border-white/10 hover:bg-[#1E1E2E] transition-all cursor-pointer"
+                            style={{ marginLeft: "auto", marginRight: "auto", width: "fit-content" }}
+                        >
+                            <ArrowUp className="w-3 h-3" />
+                            Back to top
+                        </button>
                     )}
                 </div>
             ) : (
