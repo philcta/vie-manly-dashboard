@@ -20,6 +20,7 @@
 - **Charts**: Recharts | **Animation**: Framer Motion | **UI Primitives**: Radix UI
 - **AI SDK**: `ai` v6 + `@ai-sdk/openai` v3 + `@ai-sdk/react` v2 (GPT-4o)
 - **Repo**: `github.com/philcta/vie-manly-dashboard` branch `master`
+- **Live URL**: `https://viemarket.app`
 
 ## Key Files to Read First
 

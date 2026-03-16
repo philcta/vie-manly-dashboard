@@ -300,7 +300,7 @@ function buildHtml(conv: ConversationExport, kpiTargets: KpiTarget[]): string {
 
     <!-- Footer -->
     <div style="margin-top:40px;border-top:1px solid #eee;padding-top:12px;text-align:center;">
-        <p style="font-size:9px;color:#ccc;">Generated from VIE. MANLY Dashboard · vie-manly-dashboard.vercel.app</p>
+        <p style="font-size:9px;color:#ccc;">Generated from VIE. MANLY Dashboard · viemarket.app</p>
     </div>
 </body>
 </html>`;
