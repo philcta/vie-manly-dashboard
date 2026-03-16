@@ -5,14 +5,12 @@ import { useChat } from "@ai-sdk/react";
 import { TextStreamChatTransport } from "ai";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-    MessageSquareText,
     X,
     Send,
     Sparkles,
     Loader2,
     Trash2,
     ChevronDown,
-    ChevronUp,
     Home,
     FileText,
     Minus,
@@ -20,8 +18,6 @@ import {
     Clock,
     ChevronLeft,
     Star,
-    LayoutGrid,
-    Plus,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { exportConversationToPdf } from "@/lib/export-pdf";
@@ -394,8 +390,6 @@ export default function AiCoachPanel() {
     const [showScrollBtn, setShowScrollBtn] = useState(false);
     const [activeCategory, setActiveCategory] = useState<string | null>(null);
     const [quickSuggestions] = useState(() => getQuickSuggestions());
-    const [showTopicStrip, setShowTopicStrip] = useState(false);
-    const [stripCategory, setStripCategory] = useState<string | null>(null);
     const [showDocs, setShowDocs] = useState(false);
     const docsRef = useRef<HTMLDivElement>(null);
 
@@ -579,8 +573,6 @@ export default function AiCoachPanel() {
         setSessionId(generateSessionId());
         conversationCreatedRef.current = null;
         lastSavedCountRef.current = 0;
-        setShowTopicStrip(false);
-        setStripCategory(null);
         setActiveCategory(null);
     };
 
@@ -693,16 +685,16 @@ export default function AiCoachPanel() {
                             </div>
 
                             {/* Header — Row 2: Action buttons */}
-                            <div ref={docsRef} className="flex items-center gap-1 px-4 pb-2.5 relative">
-                                {/* Home — always visible, highlighted when in conversation */}
+                            <div ref={docsRef} className="flex items-center gap-1 px-4 pb-2 relative">
+                                {/* Home */}
                                 <button
-                                    onClick={goHome}
+                                    onClick={() => { goHome(); setActiveCategory(null); }}
                                     className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer"
                                     style={{
                                         color: messages.length === 0 && !showHistory && !showFavorites && !showDocs ? "#A8B094" : "#9CA3AF",
                                         backgroundColor: messages.length === 0 && !showHistory && !showFavorites && !showDocs ? "rgba(168,176,148,0.15)" : "rgba(255,255,255,0.05)",
                                     }}
-                                    title="Home — browse topics"
+                                    title="Home — new conversation"
                                 >
                                     <Home className="w-3 h-3" />
                                     Home
@@ -770,41 +762,27 @@ export default function AiCoachPanel() {
                                             className="absolute top-full right-0 mt-2 w-64 bg-white rounded-xl shadow-2xl border border-[#EAEAE8] z-50 overflow-hidden"
                                         >
                                             <div className="p-3 space-y-3">
-                                                {/* AI Guide */}
                                                 <div>
                                                     <p className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7355] mb-1.5 px-1">📘 AI Guide</p>
-                                                    <a
-                                                        href="/docs/ai_coach_tutorial.pdf"
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-[#F5F5F0] transition-colors group"
-                                                    >
+                                                    <a href="/docs/ai_coach_tutorial.pdf" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-[#F5F5F0] transition-colors group">
                                                         <FileText className="w-4 h-4 text-[#6B7355] shrink-0" />
                                                         <span className="text-xs text-[#1A1A1A] group-hover:text-[#6B7355] transition-colors">AI Coach Tutorial</span>
                                                     </a>
                                                 </div>
                                                 <div className="border-t border-[#EAEAE8]" />
-                                                {/* Big Pic Reports */}
                                                 <div>
                                                     <p className="text-[10px] font-semibold uppercase tracking-wider text-[#B8860B] mb-1.5 px-1">📊 Big Pic Reports</p>
-                                                    <a
-                                                        href="/docs/business_improvement_plan.pdf"
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-[#F5F5F0] transition-colors group"
-                                                    >
+                                                    <a href="/docs/business_improvement_plan.pdf" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-[#F5F5F0] transition-colors group">
                                                         <FileText className="w-4 h-4 text-[#B8860B] shrink-0" />
                                                         <span className="text-xs text-[#1A1A1A] group-hover:text-[#B8860B] transition-colors">Business Improvement Plan</span>
                                                     </a>
                                                 </div>
                                                 <div className="border-t border-[#EAEAE8]" />
-                                                {/* Monthly Reports */}
                                                 <div>
                                                     <p className="text-[10px] font-semibold uppercase tracking-wider text-[#4A6FA5] mb-1.5 px-1">📅 Monthly Reports</p>
                                                     <p className="text-[11px] text-[#999] italic px-2.5 py-1.5">Coming soon</p>
                                                 </div>
                                                 <div className="border-t border-[#EAEAE8]" />
-                                                {/* Weekly Reports */}
                                                 <div>
                                                     <p className="text-[10px] font-semibold uppercase tracking-wider text-[#7B68AE] mb-1.5 px-1">📋 Weekly Reports</p>
                                                     <p className="text-[11px] text-[#999] italic px-2.5 py-1.5">Coming soon</p>
@@ -814,6 +792,73 @@ export default function AiCoachPanel() {
                                     )}
                                 </AnimatePresence>
                             </div>
+                        </div>
+
+                        {/* ═══ Persistent Category Nav Bar ═══ */}
+                        <div className="relative">
+                            <div className="flex items-center gap-1 px-3 py-1.5 bg-[#F6F6F3] border-b border-[#E8E8E4]">
+                                {QUESTION_CATEGORIES.map((cat) => (
+                                    <button
+                                        key={cat.id}
+                                        onClick={() => {
+                                            setActiveCategory(activeCategory === cat.id ? null : cat.id);
+                                            setShowHistory(false); setShowFavorites(false); setShowDocs(false);
+                                        }}
+                                        className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium
+                                          border transition-all duration-150 cursor-pointer whitespace-nowrap
+                                          ${activeCategory === cat.id
+                                                ? `${cat.activeBg} ${cat.color} shadow-sm`
+                                                : "bg-white border-[#E0E0DC] text-[#777] hover:bg-[#EEEEEA] hover:text-[#555]"
+                                            }`}
+                                    >
+                                        <span className="text-[12px]">{cat.emoji}</span>
+                                        <span className="hidden sm:inline">{cat.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                            {/* ── Category questions dropdown ── */}
+                            <AnimatePresence>
+                                {activeCategory && (
+                                    <motion.div
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: "auto", opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        transition={{ duration: 0.2, ease: "easeInOut" }}
+                                        className="overflow-hidden bg-white border-b border-[#E8E8E4] shadow-[0_4px_12px_rgba(0,0,0,0.06)]"
+                                    >
+                                        <div className="max-h-[220px] overflow-y-auto px-3 py-2 space-y-1" style={{ scrollbarWidth: "thin" }}>
+                                            {QUESTION_CATEGORIES.filter(c => c.id === activeCategory).map(cat => (
+                                                <div key={cat.id} className="grid gap-1">
+                                                    {cat.questions.map(q => (
+                                                        <div key={q} className="flex items-start gap-1 group/cq">
+                                                            <button
+                                                                onClick={() => { handleSuggestion(q); setActiveCategory(null); }}
+                                                                className={`flex-1 text-left px-2.5 py-1.5 rounded-lg text-[11px]
+                                                                  ${cat.activeBg} ${cat.color}
+                                                                  hover:brightness-[0.96] active:brightness-[0.92]
+                                                                  transition-all duration-150 cursor-pointer leading-snug`}
+                                                            >
+                                                                {q}
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); toggleFavorite(q); }}
+                                                                className={`mt-1 p-0.5 rounded transition-all cursor-pointer flex-shrink-0
+                                                                  ${favorites.includes(q)
+                                                                        ? "text-amber-400 hover:text-amber-500 opacity-100"
+                                                                        : `${cat.color} opacity-0 group-hover/cq:opacity-40 hover:!opacity-100 hover:!text-amber-400`
+                                                                    }`}
+                                                                title={favorites.includes(q) ? "Remove from favorites" : "Save to favorites"}
+                                                            >
+                                                                <Star className="w-2.5 h-2.5" fill={favorites.includes(q) ? "currentColor" : "none"} />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </div>
 
                         {/* Messages Area */}
@@ -1019,128 +1064,41 @@ export default function AiCoachPanel() {
                             ) : messages.length === 0 ? (
                                 <div className="flex flex-col h-full overflow-y-auto px-1 py-2"
                                     style={{ scrollbarWidth: "thin", scrollbarColor: "#EAEAE8 transparent" }}>
-                                    {/* Welcome */}
-                                    <div className="text-center px-3 pt-2 pb-3">
-                                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#6B7355]/10 to-[#A8B094]/10 flex items-center justify-center mb-3 mx-auto">
-                                            <MessageSquareText className="w-7 h-7 text-[#6B7355]" />
-                                        </div>
+                                    {/* Welcome — compact, no icon */}
+                                    <div className="text-center px-3 pt-4 pb-3">
                                         <h4 className="font-semibold text-[#1A1A1A] text-base mb-0.5">
                                             Hi Boss! 👋
                                         </h4>
                                         <p className="text-[#8A8A8A] text-[12px] leading-relaxed">
-                                            Your AI coach for VIE Market — pick a topic or ask anything
+                                            Pick a topic above or ask anything below
                                         </p>
                                     </div>
 
-
                                     {/* Quick Suggestions */}
-                                    {!activeCategory && (
-                                        <div className="px-2 mb-3">
-                                            <p className="text-[10px] font-semibold text-[#B0B0B0] uppercase tracking-wider mb-1.5 px-1">
-                                                Quick questions
-                                            </p>
-                                            <div className="grid gap-1.5">
-                                                {quickSuggestions.map((prompt: string) => (
-                                                    <button
-                                                        key={prompt}
-                                                        onClick={() => handleSuggestion(prompt)}
-                                                        className="text-left px-3 py-2 rounded-xl text-[12px]
-                                              bg-[#F8F8F6] hover:bg-[#F0F1EC]
-                                              text-[#5A5A5A] hover:text-[#1A1A1A]
-                                              border border-[#EAEAE8] hover:border-[#6B7355]/20
-                                              transition-all duration-200 cursor-pointer
-                                              leading-snug"
-                                                    >
-                                                        {prompt}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Category Pills */}
-                                    <div className="px-2 mb-2">
+                                    <div className="px-2 mb-3">
                                         <p className="text-[10px] font-semibold text-[#B0B0B0] uppercase tracking-wider mb-1.5 px-1">
-                                            Browse by topic
+                                            Quick questions
                                         </p>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {QUESTION_CATEGORIES.map((cat) => (
+                                        <div className="grid gap-1.5">
+                                            {quickSuggestions.map((prompt: string) => (
                                                 <button
-                                                    key={cat.id}
-                                                    onClick={() =>
-                                                        setActiveCategory(
-                                                            activeCategory === cat.id ? null : cat.id
-                                                        )
-                                                    }
-                                                    className={`px-2.5 py-1.5 rounded-lg text-[12px] font-medium
-                                          border transition-all duration-200 cursor-pointer
-                                          ${activeCategory === cat.id
-                                                            ? `${cat.activeBg} ${cat.color}`
-                                                            : "bg-[#F8F8F6] border-[#EAEAE8] text-[#5A5A5A] hover:bg-[#F0F1EC]"
-                                                        }`}
+                                                    key={prompt}
+                                                    onClick={() => handleSuggestion(prompt)}
+                                                    className="text-left px-3 py-2 rounded-xl text-[12px]
+                                          bg-[#F8F8F6] hover:bg-[#F0F1EC]
+                                          text-[#5A5A5A] hover:text-[#1A1A1A]
+                                          border border-[#EAEAE8] hover:border-[#6B7355]/20
+                                          transition-all duration-200 cursor-pointer
+                                          leading-snug"
                                                 >
-                                                    {cat.emoji} {cat.label}
+                                                    {prompt}
                                                 </button>
                                             ))}
                                         </div>
                                     </div>
-
-                                    {/* Expanded Category Questions */}
-                                    {activeCategory && (
-                                        <div className="px-2 pb-2">
-                                            {QUESTION_CATEGORIES.filter(
-                                                (c) => c.id === activeCategory
-                                            ).map((cat) => (
-                                                <div key={cat.id} className="grid gap-1.5">
-                                                    {cat.questions.map((q) => (
-                                                        <div key={q} className="flex items-start gap-1 group/q">
-                                                            <button
-                                                                onClick={() => handleSuggestion(q)}
-                                                                className={`flex-1 text-left px-3 py-2 rounded-xl text-[12px]
-                                                    ${cat.activeBg} ${cat.color}
-                                                    hover:brightness-95
-                                                    transition-all duration-200 cursor-pointer
-                                                    leading-snug`}
-                                                            >
-                                                                {q}
-                                                            </button>
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); toggleFavorite(q); }}
-                                                                className={`mt-1.5 p-1 rounded-md transition-all cursor-pointer flex-shrink-0
-                                                                    ${favorites.includes(q)
-                                                                        ? "text-amber-400 hover:text-amber-500 opacity-100"
-                                                                        : `${cat.color} opacity-0 group-hover/q:opacity-40 hover:!opacity-100 hover:!text-amber-400`
-                                                                    }`}
-                                                                title={favorites.includes(q) ? "Remove from favorites" : "Save to favorites"}
-                                                            >
-                                                                <Star className="w-3 h-3" fill={favorites.includes(q) ? "currentColor" : "none"} />
-                                                            </button>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
                                 </div>
                             ) : (
                                 <>
-                                    {/* New topic / Home banner at top of conversation */}
-                                    <div className="flex items-center gap-2 mb-3 -mt-1">
-                                        <button
-                                            onClick={goHome}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg
-                                              bg-gradient-to-r from-[#6B7355]/8 to-[#A8B094]/8
-                                              border border-[#6B7355]/15 hover:border-[#6B7355]/30
-                                              text-[#6B7355] text-[11px] font-medium
-                                              hover:bg-[#6B7355]/10 transition-all cursor-pointer"
-                                            title="New conversation — browse topics"
-                                        >
-                                            <Home className="w-3 h-3" />
-                                            New topic
-                                        </button>
-                                        <div className="flex-1 h-px bg-[#EAEAE8]" />
-                                        <span className="text-[10px] text-[#C0C0C0]">{messages.filter(m => m.role === "user").length} Q{messages.filter(m => m.role === "user").length !== 1 ? "s" : ""}</span>
-                                    </div>
                                     {messages.map((msg) => (
                                         <div
                                             key={msg.id}
@@ -1199,88 +1157,6 @@ export default function AiCoachPanel() {
                             )}
                         </AnimatePresence>
 
-                        {/* ── Topic Strip — collapsible topic browser above input ── */}
-                        {messages.length > 0 && (
-                            <div className="border-t border-[#EAEAE8] bg-[#FAFAF8]">
-                                {/* Toggle bar */}
-                                <button
-                                    onClick={() => { setShowTopicStrip(!showTopicStrip); if (!showTopicStrip) setStripCategory(null); }}
-                                    className="w-full flex items-center justify-between px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#999] hover:text-[#666] transition-colors cursor-pointer"
-                                >
-                                    <span className="flex items-center gap-1">
-                                        <LayoutGrid className="w-3 h-3" />
-                                        {showTopicStrip ? "Hide topics" : "Browse topics"}
-                                    </span>
-                                    {showTopicStrip
-                                        ? <ChevronDown className="w-3 h-3" />
-                                        : <ChevronUp className="w-3 h-3" />}
-                                </button>
-                                {/* Expandable topic content */}
-                                <AnimatePresence>
-                                    {showTopicStrip && (
-                                        <motion.div
-                                            initial={{ height: 0, opacity: 0 }}
-                                            animate={{ height: "auto", opacity: 1 }}
-                                            exit={{ height: 0, opacity: 0 }}
-                                            transition={{ duration: 0.2 }}
-                                            className="overflow-hidden"
-                                        >
-                                            <div className="px-3 pb-2">
-                                                {/* Category pills */}
-                                                <div className="flex flex-wrap gap-1 mb-1.5">
-                                                    {QUESTION_CATEGORIES.map((cat) => (
-                                                        <button
-                                                            key={cat.id}
-                                                            onClick={() => setStripCategory(stripCategory === cat.id ? null : cat.id)}
-                                                            className={`px-2 py-1 rounded-md text-[11px] font-medium
-                                                              border transition-all duration-150 cursor-pointer
-                                                              ${stripCategory === cat.id
-                                                                    ? `${cat.activeBg} ${cat.color}`
-                                                                    : "bg-white border-[#EAEAE8] text-[#777] hover:bg-[#F0F1EC]"
-                                                                }`}
-                                                        >
-                                                            {cat.emoji} {cat.label}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                                {/* Questions for selected category */}
-                                                {stripCategory && (
-                                                    <div className="max-h-[160px] overflow-y-auto space-y-1 pr-1" style={{ scrollbarWidth: "thin" }}>
-                                                        {QUESTION_CATEGORIES.filter(c => c.id === stripCategory).map(cat => (
-                                                            <div key={cat.id} className="grid gap-1">
-                                                                {cat.questions.map(q => (
-                                                                    <div key={q} className="flex items-start gap-1 group/sq">
-                                                                        <button
-                                                                            onClick={() => { handleSuggestion(q); setShowTopicStrip(false); setStripCategory(null); }}
-                                                                            className={`flex-1 text-left px-2.5 py-1.5 rounded-lg text-[11px]
-                                                                              ${cat.activeBg} ${cat.color}
-                                                                              hover:brightness-95 transition-all duration-150 cursor-pointer leading-snug`}
-                                                                        >
-                                                                            {q}
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={(e) => { e.stopPropagation(); toggleFavorite(q); }}
-                                                                            className={`mt-1 p-0.5 rounded transition-all cursor-pointer flex-shrink-0
-                                                                              ${favorites.includes(q)
-                                                                                    ? "text-amber-400 hover:text-amber-500 opacity-100"
-                                                                                    : `${cat.color} opacity-0 group-hover/sq:opacity-40 hover:!opacity-100 hover:!text-amber-400`
-                                                                                }`}
-                                                                            title={favorites.includes(q) ? "Remove from favorites" : "Save to favorites"}
-                                                                        >
-                                                                            <Star className="w-2.5 h-2.5" fill={favorites.includes(q) ? "currentColor" : "none"} />
-                                                                        </button>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
-                        )}
 
                         {/* Input Area */}
                         <div className="border-t border-[#EAEAE8] px-4 py-3 bg-white">
