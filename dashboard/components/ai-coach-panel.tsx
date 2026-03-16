@@ -12,6 +12,7 @@ import {
     Loader2,
     Trash2,
     ChevronDown,
+    ChevronUp,
     Home,
     FileText,
     Minus,
@@ -19,6 +20,8 @@ import {
     Clock,
     ChevronLeft,
     Star,
+    LayoutGrid,
+    Plus,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { exportConversationToPdf } from "@/lib/export-pdf";
@@ -391,6 +394,8 @@ export default function AiCoachPanel() {
     const [showScrollBtn, setShowScrollBtn] = useState(false);
     const [activeCategory, setActiveCategory] = useState<string | null>(null);
     const [quickSuggestions] = useState(() => getQuickSuggestions());
+    const [showTopicStrip, setShowTopicStrip] = useState(false);
+    const [stripCategory, setStripCategory] = useState<string | null>(null);
     const [showDocs, setShowDocs] = useState(false);
     const docsRef = useRef<HTMLDivElement>(null);
 
@@ -574,6 +579,16 @@ export default function AiCoachPanel() {
         setSessionId(generateSessionId());
         conversationCreatedRef.current = null;
         lastSavedCountRef.current = 0;
+        setShowTopicStrip(false);
+        setStripCategory(null);
+        setActiveCategory(null);
+    };
+
+    const goHome = () => {
+        clearChat();
+        setShowHistory(false);
+        setShowFavorites(false);
+        setShowDocs(false);
     };
 
     const doSend = (text: string) => {
@@ -679,6 +694,19 @@ export default function AiCoachPanel() {
 
                             {/* Header — Row 2: Action buttons */}
                             <div ref={docsRef} className="flex items-center gap-1 px-4 pb-2.5 relative">
+                                {/* Home — always visible, highlighted when in conversation */}
+                                <button
+                                    onClick={goHome}
+                                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer"
+                                    style={{
+                                        color: messages.length === 0 && !showHistory && !showFavorites && !showDocs ? "#A8B094" : "#9CA3AF",
+                                        backgroundColor: messages.length === 0 && !showHistory && !showFavorites && !showDocs ? "rgba(168,176,148,0.15)" : "rgba(255,255,255,0.05)",
+                                    }}
+                                    title="Home — browse topics"
+                                >
+                                    <Home className="w-3 h-3" />
+                                    Home
+                                </button>
                                 {/* Docs */}
                                 <button
                                     onClick={() => setShowDocs(!showDocs)}
@@ -728,18 +756,6 @@ export default function AiCoachPanel() {
                                     >
                                         <Download className="w-3 h-3" />
                                         Export
-                                    </button>
-                                )}
-                                {/* Home / Clear */}
-                                {messages.length > 0 && (
-                                    <button
-                                        onClick={() => { clearChat(); setShowDocs(false); }}
-                                        className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer"
-                                        style={{ color: "#9CA3AF", backgroundColor: "rgba(255,255,255,0.05)" }}
-                                        title="New conversation"
-                                    >
-                                        <Trash2 className="w-3 h-3" />
-                                        Clear
                                     </button>
                                 )}
 
@@ -1108,6 +1124,23 @@ export default function AiCoachPanel() {
                                 </div>
                             ) : (
                                 <>
+                                    {/* New topic / Home banner at top of conversation */}
+                                    <div className="flex items-center gap-2 mb-3 -mt-1">
+                                        <button
+                                            onClick={goHome}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg
+                                              bg-gradient-to-r from-[#6B7355]/8 to-[#A8B094]/8
+                                              border border-[#6B7355]/15 hover:border-[#6B7355]/30
+                                              text-[#6B7355] text-[11px] font-medium
+                                              hover:bg-[#6B7355]/10 transition-all cursor-pointer"
+                                            title="New conversation — browse topics"
+                                        >
+                                            <Home className="w-3 h-3" />
+                                            New topic
+                                        </button>
+                                        <div className="flex-1 h-px bg-[#EAEAE8]" />
+                                        <span className="text-[10px] text-[#C0C0C0]">{messages.filter(m => m.role === "user").length} Q{messages.filter(m => m.role === "user").length !== 1 ? "s" : ""}</span>
+                                    </div>
                                     {messages.map((msg) => (
                                         <div
                                             key={msg.id}
@@ -1165,6 +1198,89 @@ export default function AiCoachPanel() {
                                 </motion.button>
                             )}
                         </AnimatePresence>
+
+                        {/* ── Topic Strip — collapsible topic browser above input ── */}
+                        {messages.length > 0 && (
+                            <div className="border-t border-[#EAEAE8] bg-[#FAFAF8]">
+                                {/* Toggle bar */}
+                                <button
+                                    onClick={() => { setShowTopicStrip(!showTopicStrip); if (!showTopicStrip) setStripCategory(null); }}
+                                    className="w-full flex items-center justify-between px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#999] hover:text-[#666] transition-colors cursor-pointer"
+                                >
+                                    <span className="flex items-center gap-1">
+                                        <LayoutGrid className="w-3 h-3" />
+                                        {showTopicStrip ? "Hide topics" : "Browse topics"}
+                                    </span>
+                                    {showTopicStrip
+                                        ? <ChevronDown className="w-3 h-3" />
+                                        : <ChevronUp className="w-3 h-3" />}
+                                </button>
+                                {/* Expandable topic content */}
+                                <AnimatePresence>
+                                    {showTopicStrip && (
+                                        <motion.div
+                                            initial={{ height: 0, opacity: 0 }}
+                                            animate={{ height: "auto", opacity: 1 }}
+                                            exit={{ height: 0, opacity: 0 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="overflow-hidden"
+                                        >
+                                            <div className="px-3 pb-2">
+                                                {/* Category pills */}
+                                                <div className="flex flex-wrap gap-1 mb-1.5">
+                                                    {QUESTION_CATEGORIES.map((cat) => (
+                                                        <button
+                                                            key={cat.id}
+                                                            onClick={() => setStripCategory(stripCategory === cat.id ? null : cat.id)}
+                                                            className={`px-2 py-1 rounded-md text-[11px] font-medium
+                                                              border transition-all duration-150 cursor-pointer
+                                                              ${stripCategory === cat.id
+                                                                    ? `${cat.activeBg} ${cat.color}`
+                                                                    : "bg-white border-[#EAEAE8] text-[#777] hover:bg-[#F0F1EC]"
+                                                                }`}
+                                                        >
+                                                            {cat.emoji} {cat.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                {/* Questions for selected category */}
+                                                {stripCategory && (
+                                                    <div className="max-h-[160px] overflow-y-auto space-y-1 pr-1" style={{ scrollbarWidth: "thin" }}>
+                                                        {QUESTION_CATEGORIES.filter(c => c.id === stripCategory).map(cat => (
+                                                            <div key={cat.id} className="grid gap-1">
+                                                                {cat.questions.map(q => (
+                                                                    <div key={q} className="flex items-start gap-1 group/sq">
+                                                                        <button
+                                                                            onClick={() => { handleSuggestion(q); setShowTopicStrip(false); setStripCategory(null); }}
+                                                                            className={`flex-1 text-left px-2.5 py-1.5 rounded-lg text-[11px]
+                                                                              ${cat.activeBg} ${cat.color}
+                                                                              hover:brightness-95 transition-all duration-150 cursor-pointer leading-snug`}
+                                                                        >
+                                                                            {q}
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={(e) => { e.stopPropagation(); toggleFavorite(q); }}
+                                                                            className={`mt-1 p-0.5 rounded transition-all cursor-pointer flex-shrink-0
+                                                                              ${favorites.includes(q)
+                                                                                    ? "text-amber-400 hover:text-amber-500 opacity-100"
+                                                                                    : `${cat.color} opacity-0 group-hover/sq:opacity-40 hover:!opacity-100 hover:!text-amber-400`
+                                                                                }`}
+                                                                            title={favorites.includes(q) ? "Remove from favorites" : "Save to favorites"}
+                                                                        >
+                                                                            <Star className="w-2.5 h-2.5" fill={favorites.includes(q) ? "currentColor" : "none"} />
+                                                                        </button>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+                            </div>
+                        )}
 
                         {/* Input Area */}
                         <div className="border-t border-[#EAEAE8] px-4 py-3 bg-white">
