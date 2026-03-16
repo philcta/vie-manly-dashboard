@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { motion } from "framer-motion";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Download } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Download, ArrowUp } from "lucide-react";
 import KpiCard from "@/components/kpi-card";
 import PeriodSelector from "@/components/period-selector";
 import {
@@ -102,6 +102,23 @@ export default function StaffPage() {
         mql.addEventListener("change", update);
         return () => mql.removeEventListener("change", update);
     }, []);
+
+    // Scroll-to-top for staff earnings mobile cards
+    const staffScrollRef = useRef<HTMLDivElement>(null);
+    const staffTopSentinelRef = useRef<HTMLDivElement>(null);
+    const [showStaffScrollTop, setShowStaffScrollTop] = useState(false);
+
+    useEffect(() => {
+        const sentinel = staffTopSentinelRef.current;
+        const container = staffScrollRef.current;
+        if (!sentinel || !container || !isMobile) return;
+        const obs = new IntersectionObserver(
+            ([entry]) => setShowStaffScrollTop(!entry.isIntersecting),
+            { root: container, threshold: 0 }
+        );
+        obs.observe(sentinel);
+        return () => obs.disconnect();
+    }, [isMobile]);
 
     // ── Chart filter: which series are visible ──
     const [activeSegments, setActiveSegments] = useState<Set<SegmentKey>>(
@@ -583,60 +600,75 @@ export default function StaffPage() {
                             </div>
                         )}
 
-                        <div className="max-h-[480px] overflow-y-auto">
+                        <div ref={staffScrollRef} className="relative max-h-[480px] overflow-y-auto">
                             {/* Mobile card view */}
                             {isMobile ? (
-                                <div className="divide-y divide-border">
-                                    {sortedEarnings.length === 0 ? (
-                                        <div className="px-4 py-8 text-center text-muted-foreground text-sm">
-                                            No earnings data for this pay period.
-                                        </div>
-                                    ) : (
-                                        sortedEarnings.map((r) => (
-                                            <div key={r.name} className="px-4 py-3 space-y-1.5">
-                                                <div className="flex items-center justify-between">
-                                                    <div className="min-w-0 mr-2">
-                                                        <span className="font-semibold text-sm text-foreground block truncate">{r.name}</span>
-                                                        <span className="text-[11px] text-muted-foreground">{r.jobTitle}</span>
-                                                    </div>
-                                                    <span className="text-sm font-bold text-foreground tabular-nums whitespace-nowrap">
-                                                        {r.total > 0 ? formatCurrency(r.total) : "$0"}
-                                                    </span>
-                                                </div>
-                                                <div className="grid grid-cols-4 gap-1.5 text-xs">
-                                                    <div>
-                                                        <span className="text-muted-foreground block">Weekday</span>
-                                                        <span className="font-medium tabular-nums">{r.weekday > 0 ? formatCurrency(r.weekday) : "$0"}</span>
-                                                        {r.weekdayHours > 0 && <span className="text-[10px] text-muted-foreground block">{r.weekdayHours.toFixed(1)}h</span>}
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-muted-foreground block">Sat</span>
-                                                        <span className="font-medium tabular-nums">{r.saturday > 0 ? formatCurrency(r.saturday) : "$0"}</span>
-                                                        {r.saturdayHours > 0 && <span className="text-[10px] text-muted-foreground block">{r.saturdayHours.toFixed(1)}h</span>}
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-muted-foreground block">Sun</span>
-                                                        <span className="font-medium tabular-nums">{r.sunday > 0 ? formatCurrency(r.sunday) : "$0"}</span>
-                                                        {r.sundayHours > 0 && <span className="text-[10px] text-muted-foreground block">{r.sundayHours.toFixed(1)}h</span>}
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-muted-foreground block">P.Hol</span>
-                                                        <span className="font-medium tabular-nums">{r.publicHoliday > 0 ? formatCurrency(r.publicHoliday) : "$0"}</span>
-                                                        {r.publicHolidayHours > 0 && <span className="text-[10px] text-muted-foreground block">{r.publicHolidayHours.toFixed(1)}h</span>}
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                                                    <span>{r.totalHours > 0 ? `${r.totalHours.toFixed(1)}h total` : "0h"}</span>
-                                                    {r.breaks > 0 && (
-                                                        <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
-                                                            {r.breaks} break{r.breaks > 1 ? "s" : ""}
-                                                        </span>
-                                                    )}
-                                                </div>
+                                <>
+                                    <div className="divide-y divide-border">
+                                        {/* Sentinel for scroll-to-top detection */}
+                                        <div ref={staffTopSentinelRef} className="h-0 w-0" aria-hidden />
+                                        {sortedEarnings.length === 0 ? (
+                                            <div className="px-4 py-8 text-center text-muted-foreground text-sm">
+                                                No earnings data for this pay period.
                                             </div>
-                                        ))
+                                        ) : (
+                                            sortedEarnings.map((r) => (
+                                                <div key={r.name} className="px-4 py-3 space-y-1.5">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="min-w-0 mr-2">
+                                                            <span className="font-semibold text-sm text-foreground block truncate">{r.name}</span>
+                                                            <span className="text-[11px] text-muted-foreground">{r.jobTitle}</span>
+                                                        </div>
+                                                        <span className="text-sm font-bold text-foreground tabular-nums whitespace-nowrap">
+                                                            {r.total > 0 ? formatCurrency(r.total) : "$0"}
+                                                        </span>
+                                                    </div>
+                                                    <div className="grid grid-cols-4 gap-1.5 text-xs">
+                                                        <div>
+                                                            <span className="text-muted-foreground block">Weekday</span>
+                                                            <span className="font-medium tabular-nums">{r.weekday > 0 ? formatCurrency(r.weekday) : "$0"}</span>
+                                                            {r.weekdayHours > 0 && <span className="text-[10px] text-muted-foreground block">{r.weekdayHours.toFixed(1)}h</span>}
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-muted-foreground block">Sat</span>
+                                                            <span className="font-medium tabular-nums">{r.saturday > 0 ? formatCurrency(r.saturday) : "$0"}</span>
+                                                            {r.saturdayHours > 0 && <span className="text-[10px] text-muted-foreground block">{r.saturdayHours.toFixed(1)}h</span>}
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-muted-foreground block">Sun</span>
+                                                            <span className="font-medium tabular-nums">{r.sunday > 0 ? formatCurrency(r.sunday) : "$0"}</span>
+                                                            {r.sundayHours > 0 && <span className="text-[10px] text-muted-foreground block">{r.sundayHours.toFixed(1)}h</span>}
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-muted-foreground block">P.Hol</span>
+                                                            <span className="font-medium tabular-nums">{r.publicHoliday > 0 ? formatCurrency(r.publicHoliday) : "$0"}</span>
+                                                            {r.publicHolidayHours > 0 && <span className="text-[10px] text-muted-foreground block">{r.publicHolidayHours.toFixed(1)}h</span>}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                                                        <span>{r.totalHours > 0 ? `${r.totalHours.toFixed(1)}h total` : "0h"}</span>
+                                                        {r.breaks > 0 && (
+                                                            <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
+                                                                {r.breaks} break{r.breaks > 1 ? "s" : ""}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                    {/* Floating scroll-to-top */}
+                                    {showStaffScrollTop && (
+                                        <button
+                                            onClick={() => staffScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+                                            className="sticky bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#1E1E2E]/85 text-white text-xs font-medium shadow-lg backdrop-blur-sm border border-white/10 hover:bg-[#1E1E2E] transition-all cursor-pointer"
+                                            style={{ marginLeft: "auto", marginRight: "auto", width: "fit-content" }}
+                                        >
+                                            <ArrowUp className="w-3 h-3" />
+                                            Back to top
+                                        </button>
                                     )}
-                                </div>
+                                </>
                             ) : (
                                 /* Desktop table */
                                 <table className="w-full text-sm table-fixed">
